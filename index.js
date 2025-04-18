@@ -18,9 +18,25 @@ app.get('/testdb', async (req, res) => {
 });
 
 /**
+ * ENDPOINT DE DEBUG Para ver as colunas reais da tabela messages
+ * Acesse em: /debug/columns
+ */
+app.get('/debug/columns', async (req, res) => {
+  try {
+    const cols = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns
+      WHERE table_name = 'messages'
+    `);
+    res.json(cols.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * GET /messages
- * Filtros opcionais via query string: ?tenant_id=xxx&channel=yyy
- * Exemplo: /messages?tenant_id=acme&channel=whatsapp
+ * Filtros opcionais por query string: ?tenant_id=xxx&channel=yyy
  */
 app.get('/messages', async (req, res) => {
   try {
@@ -50,7 +66,6 @@ app.get('/messages', async (req, res) => {
 /**
  * POST /messages
  * Inserção manual (útil para testes, além do webhook)
- * Body: { tenant_id, channel, message, timestamp, sender }
  */
 app.post('/messages', async (req, res) => {
   try {
@@ -68,7 +83,6 @@ app.post('/messages', async (req, res) => {
 /**
  * POST /webhook/message
  * Payload enviado pelo N8N ou outros canais.
- * Body: { tenant_id, channel, message, timestamp, sender }
  */
 app.post('/webhook/message', async (req, res) => {
   try {
