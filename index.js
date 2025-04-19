@@ -3,13 +3,13 @@ const pool = require('./db');
 const cors = require('cors');
 
 const app = express();
-app.use(cors()); // permite chamadas do frontend
+app.use(cors());
 app.use(express.json());
 
-// --- HEALTH CHECK ---
+// ROTA DE SAÚDE
 app.get('/', (req, res) => res.send('API NuvemChat online 🚀'));
 
-// --- TESTA CONEXÃO COM O BANCO ---
+// TESTE DE CONEXÃO COM O BANCO
 app.get('/testdb', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -19,7 +19,7 @@ app.get('/testdb', async (req, res) => {
   }
 });
 
-// --- DEBUG: VER COLUNAS DA TABELA MESSAGES ---
+// DEBUG: VER COLUNAS DA TABELA
 app.get('/debug/columns', async (req, res) => {
   try {
     const cols = await pool.query(`
@@ -33,7 +33,7 @@ app.get('/debug/columns', async (req, res) => {
   }
 });
 
-// --- GET /messages ---
+// LISTAGEM DE MENSAGENS
 app.get('/messages', async (req, res) => {
   const { tenant_id, channel } = req.query;
   let query = 'SELECT * FROM messages';
@@ -60,7 +60,7 @@ app.get('/messages', async (req, res) => {
   }
 });
 
-// --- POST /messages (inserção manual ou teste) ---
+// INSERIR MENSAGEM MANUAL
 app.post('/messages', async (req, res) => {
   const { tenant_id, channel, message, timestamp, sender } = req.body;
   try {
@@ -74,7 +74,7 @@ app.post('/messages', async (req, res) => {
   }
 });
 
-// --- POST /webhook/message (via N8N ou canais externos) ---
+// ENDPOINT DO WEBHOOK /webhook/message
 app.post('/webhook/message', async (req, res) => {
   const { tenant_id, channel, message, timestamp, sender } = req.body;
   try {
@@ -83,4 +83,17 @@ app.post('/webhook/message', async (req, res) => {
       [tenant_id, channel, message, timestamp, sender]
     );
     res.status(201).json({
-      status: '
+      status: "success",
+      message: "Mensagem registrada",
+      data: result.rows[0]
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// INICIAR SERVIDOR
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Servidor rodando na porta ${port}`);
+});
