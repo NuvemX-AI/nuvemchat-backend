@@ -9,9 +9,25 @@ const authenticate = require('./middleware/auth');
 
 const app = express();
 
-// middlewares
+// middleware de CORS e JSON
 app.use(cors());
 app.use(express.json());
+
+// --- MIGRATION: CRIA TABELA users CASO NÃO EXISTA ---
+const createUsersTable = `
+  CREATE TABLE IF NOT EXISTS users (
+    id             SERIAL PRIMARY KEY,
+    email          TEXT   NOT NULL UNIQUE,
+    password_hash  TEXT   NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login     TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+`;
+pool
+  .query(createUsersTable)
+  .then(() => console.log('✅ Tabela "users" pronta'))
+  .catch((err) => console.error('❌ Erro criando tabela users:', err));
+// ------------------------------------------------------
 
 // rotas de autenticação (register / login)
 app.use('/auth', authRoutes);
@@ -19,7 +35,7 @@ app.use('/auth', authRoutes);
 // health check público
 app.get('/', (req, res) => res.send('API NuvemChat online 🚀'));
 
-// conexões com o banco (protegidas)
+// conexões com o banco (protegidas via JWT)
 app.get('/testdb', authenticate, async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -84,7 +100,7 @@ app.post('/messages', authenticate, async (req, res) => {
   }
 });
 
-// Webhook público (recebe de externos, não exige token)
+// Webhook público (não exige token)
 app.post('/webhook/message', async (req, res) => {
   const { tenant_id, channel, message, timestamp, sender } = req.body;
   try {
@@ -93,9 +109,9 @@ app.post('/webhook/message', async (req, res) => {
       [tenant_id, channel, message, timestamp, sender]
     );
     res.status(201).json({
-      status: "success",
-      message: "Mensagem registrada",
-      data: result.rows[0]
+      status: 'success',
+      message: 'Mensagem registrada',
+      data: result.rows[0],
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
