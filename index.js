@@ -1,16 +1,26 @@
+// index.js
+require('dotenv').config();
+
 const express = require('express');
-const pool = require('./db');
 const cors = require('cors');
+const pool = require('./db');
+const authRoutes = require('./routes/auth');
+const authenticate = require('./middleware/auth');
 
 const app = express();
+
+// middlewares
 app.use(cors());
 app.use(express.json());
 
-// ROTA DE SAÚDE
+// rotas de autenticação (register / login)
+app.use('/auth', authRoutes);
+
+// health check público
 app.get('/', (req, res) => res.send('API NuvemChat online 🚀'));
 
-// TESTE DE CONEXÃO COM O BANCO
-app.get('/testdb', async (req, res) => {
+// conexões com o banco (protegidas)
+app.get('/testdb', authenticate, async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
     res.json(result.rows[0]);
@@ -19,8 +29,8 @@ app.get('/testdb', async (req, res) => {
   }
 });
 
-// DEBUG: VER COLUNAS DA TABELA
-app.get('/debug/columns', async (req, res) => {
+// DEBUG: listar colunas da tabela messages (protegido)
+app.get('/debug/columns', authenticate, async (req, res) => {
   try {
     const cols = await pool.query(`
       SELECT column_name 
@@ -33,8 +43,8 @@ app.get('/debug/columns', async (req, res) => {
   }
 });
 
-// LISTAGEM DE MENSAGENS
-app.get('/messages', async (req, res) => {
+// LISTAGEM DE MENSAGENS (protegido)
+app.get('/messages', authenticate, async (req, res) => {
   const { tenant_id, channel } = req.query;
   let query = 'SELECT * FROM messages';
   const params = [];
@@ -60,8 +70,8 @@ app.get('/messages', async (req, res) => {
   }
 });
 
-// INSERIR MENSAGEM MANUAL
-app.post('/messages', async (req, res) => {
+// INSERIR MENSAGEM MANUAL (protegido)
+app.post('/messages', authenticate, async (req, res) => {
   const { tenant_id, channel, message, timestamp, sender } = req.body;
   try {
     const result = await pool.query(
@@ -74,7 +84,7 @@ app.post('/messages', async (req, res) => {
   }
 });
 
-// ENDPOINT DO WEBHOOK /webhook/message
+// Webhook público (recebe de externos, não exige token)
 app.post('/webhook/message', async (req, res) => {
   const { tenant_id, channel, message, timestamp, sender } = req.body;
   try {
@@ -92,7 +102,7 @@ app.post('/webhook/message', async (req, res) => {
   }
 });
 
-// INICIAR SERVIDOR
+// iniciar servidor
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
