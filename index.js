@@ -90,9 +90,18 @@ app.get('/messages', authenticate, async (req, res) => {
 app.post('/messages', authenticate, async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
 
-  // limpa '=' do início de message e sender, se existir
-  if (typeof message === 'string') message = message.replace(/^=/, '');
-  if (typeof sender  === 'string') sender  = sender.replace(/^=/, '');
+  // limpa '=' do início
+  const rawMsg = message;
+  const rawSender = sender;
+  message = (typeof message === 'string' ? message.replace(/^=/, '') : message);
+  sender  = (typeof sender  === 'string' ? sender.replace(/^=/,  '') : sender);
+
+  console.log(
+    '[POST /messages] raw message:', rawMsg,
+    '→ clean message:', message,
+    ' | raw sender:', rawSender,
+    '→ clean sender:', sender
+  );
 
   try {
     const result = await pool.query(
@@ -109,9 +118,18 @@ app.post('/messages', authenticate, async (req, res) => {
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
 
-  // limpa '=' do início de message e sender, se existir
-  if (typeof message === 'string') message = message.replace(/^=/, '');
-  if (typeof sender  === 'string') sender  = sender.replace(/^=/, '');
+  // limpa '=' do início
+  const rawMsg = message;
+  const rawSender = sender;
+  message = (typeof message === 'string' ? message.replace(/^=/, '') : message);
+  sender  = (typeof sender  === 'string' ? sender.replace(/^=/,  '') : sender);
+
+  console.log(
+    '[POST /webhook/message] raw message:', rawMsg,
+    '→ clean message:', message,
+    ' | raw sender:', rawSender,
+    '→ clean sender:', sender
+  );
 
   try {
     const result = await pool.query(
