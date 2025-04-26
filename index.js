@@ -1,4 +1,6 @@
 // index.js
+require('dotenv').config();
+
 console.log('⚡️ Iniciando server mínimo');
 
 const express = require('express');
