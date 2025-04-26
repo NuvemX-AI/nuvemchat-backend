@@ -23,19 +23,12 @@ const createUsersTable = `
     last_login     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 `;
-pool
-  .query(createUsersTable)
-  .then(() => console.log('✅ Tabela "users" pronta'))
-  .catch((err) => console.error('❌ Erro criando tabela users:', err));
-// ------------------------------------------------------
 
-// rotas de autenticação (register / login)
+// Rotas de autenticação
 app.use('/auth', authRoutes);
-
-// health check público
 app.get('/', (req, res) => res.send('API NuvemChat online 🚀'));
 
-// conexões com o banco (protegidas via JWT)
+// Rota protegida de teste DB
 app.get('/testdb', authenticate, async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -45,11 +38,11 @@ app.get('/testdb', authenticate, async (req, res) => {
   }
 });
 
-// DEBUG: listar colunas da tabela messages (protegido)
+// Debug colunas
 app.get('/debug/columns', authenticate, async (req, res) => {
   try {
     const cols = await pool.query(`
-      SELECT column_name 
+      SELECT column_name
       FROM information_schema.columns
       WHERE table_name = 'messages'
     `);
@@ -59,53 +52,42 @@ app.get('/debug/columns', authenticate, async (req, res) => {
   }
 });
 
-// LISTAGEM DE MENSAGENS (protegido)
+// Listagem de mensagens
 app.get('/messages', authenticate, async (req, res) => {
   const { tenant_id, channel } = req.query;
-  let query = 'SELECT * FROM messages';
+  let sql = 'SELECT * FROM messages';
   const params = [];
 
   if (tenant_id && channel) {
-    query += ' WHERE tenant_id = $1 AND channel = $2';
+    sql += ' WHERE tenant_id = $1 AND channel = $2';
     params.push(tenant_id, channel);
   } else if (tenant_id) {
-    query += ' WHERE tenant_id = $1';
-    params.push(tenant_id);
+    sql += ' WHERE tenant_id = $1'; params.push(tenant_id);
   } else if (channel) {
-    query += ' WHERE channel = $1';
-    params.push(channel);
+    sql += ' WHERE channel = $1'; params.push(channel);
   }
 
-  query += ' ORDER BY id DESC LIMIT 100';
+  sql += ' ORDER BY id DESC LIMIT 100';
 
   try {
-    const result = await pool.query(query, params);
+    const result = await pool.query(sql, params);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// INSERIR MENSAGEM MANUAL (protegido)
+// Inserir mensagem manual
 app.post('/messages', authenticate, async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
 
   // limpa '=' do início
-  const rawMsg = message;
-  const rawSender = sender;
   message = (typeof message === 'string' ? message.replace(/^=/, '') : message);
   sender  = (typeof sender  === 'string' ? sender.replace(/^=/,  '') : sender);
 
-  console.log(
-    '[POST /messages] raw message:', rawMsg,
-    '→ clean message:', message,
-    ' | raw sender:', rawSender,
-    '→ clean sender:', sender
-  );
-
   try {
     const result = await pool.query(
-      'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1,$2,$3,$4,$5) RETURNING *',
       [tenant_id, channel, message, timestamp, sender]
     );
     res.status(201).json(result.rows[0]);
@@ -114,40 +96,36 @@ app.post('/messages', authenticate, async (req, res) => {
   }
 });
 
-// Webhook público (não exige token)
+// Webhook público
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
 
   // limpa '=' do início
-  const rawMsg = message;
-  const rawSender = sender;
   message = (typeof message === 'string' ? message.replace(/^=/, '') : message);
   sender  = (typeof sender  === 'string' ? sender.replace(/^=/,  '') : sender);
 
-  console.log(
-    '[POST /webhook/message] raw message:', rawMsg,
-    '→ clean message:', message,
-    ' | raw sender:', rawSender,
-    '→ clean sender:', sender
-  );
-
   try {
     const result = await pool.query(
-      'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1,$2,$3,$4,$5) RETURNING *',
       [tenant_id, channel, message, timestamp, sender]
     );
-    res.status(201).json({
-      status: 'success',
-      message: 'Mensagem registrada',
-      data: result.rows[0],
-    });
+    res.status(201).json({ status: 'success', message: 'Mensagem registrada', data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// iniciar servidor
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
-});
+// --- Migração antes de subir o servidor ---
+(async () => {
+  try {
+    await pool.query(createUsersTable);
+    console.log('✅ Tabela "users" pronta');
+  } catch (err) {
+    console.error('❌ Erro criando tabela users:', err);
+  }
+
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`Servidor rodando na porta ${port}`);
+  });
+})();
