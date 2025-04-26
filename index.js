@@ -88,7 +88,12 @@ app.get('/messages', authenticate, async (req, res) => {
 
 // INSERIR MENSAGEM MANUAL (protegido)
 app.post('/messages', authenticate, async (req, res) => {
-  const { tenant_id, channel, message, timestamp, sender } = req.body;
+  let { tenant_id, channel, message, timestamp, sender } = req.body;
+
+  // limpa '=' do início de message e sender, se existir
+  if (typeof message === 'string') message = message.replace(/^=/, '');
+  if (typeof sender  === 'string') sender  = sender.replace(/^=/, '');
+
   try {
     const result = await pool.query(
       'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1, $2, $3, $4, $5) RETURNING *',
@@ -102,7 +107,12 @@ app.post('/messages', authenticate, async (req, res) => {
 
 // Webhook público (não exige token)
 app.post('/webhook/message', async (req, res) => {
-  const { tenant_id, channel, message, timestamp, sender } = req.body;
+  let { tenant_id, channel, message, timestamp, sender } = req.body;
+
+  // limpa '=' do início de message e sender, se existir
+  if (typeof message === 'string') message = message.replace(/^=/, '');
+  if (typeof sender  === 'string') sender  = sender.replace(/^=/, '');
+
   try {
     const result = await pool.query(
       'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1, $2, $3, $4, $5) RETURNING *',
