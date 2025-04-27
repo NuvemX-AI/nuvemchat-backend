@@ -15,6 +15,7 @@ app.use(express.json());
 const createUsersTable = `
   CREATE TABLE IF NOT EXISTS users (
     id             SERIAL PRIMARY KEY,
+    name           TEXT,                -- ⚠️ lembre de ter coluna "name" se você registra nome
     email          TEXT   NOT NULL UNIQUE,
     password_hash  TEXT   NOT NULL,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -40,31 +41,23 @@ app.use('/auth', authRoutes);
 // health check
 app.get('/', (_req, res) => res.send('API NuvemChat online 🚀'));
 
-// rota protegida de teste de conexão com o banco
+// rota protegida de teste de conexão
 app.get('/testdb', authenticate, async (_req, res) => {
-  try {
-    const result = await pool.query('SELECT NOW()');
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { rows } = await pool.query('SELECT NOW()');
+  res.json(rows[0]);
 });
 
-// debug colunas da tabela messages
+// debug colunas
 app.get('/debug/columns', authenticate, async (_req, res) => {
-  try {
-    const cols = await pool.query(`
-      SELECT column_name
+  const { rows } = await pool.query(`
+    SELECT column_name
       FROM information_schema.columns
-      WHERE table_name = 'messages'
-    `);
-    res.json(cols.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+     WHERE table_name = 'messages';
+  `);
+  res.json(rows);
 });
 
-// listagem de mensagens (com filtros opcionais)
+// listagem de mensagens
 app.get('/messages', authenticate, async (req, res) => {
   const { tenant_id, channel } = req.query;
   let sql = 'SELECT * FROM messages';
@@ -83,58 +76,44 @@ app.get('/messages', authenticate, async (req, res) => {
 
   sql += ' ORDER BY id DESC LIMIT 100';
 
-  try {
-    const result = await pool.query(sql, params);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { rows } = await pool.query(sql, params);
+  res.json(rows);
 });
 
-// inserir mensagem manual (trim “=” caso comece com igual)
+// inserir mensagem manual
 app.post('/messages', authenticate, async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
-
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
-  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '')  : sender;
+  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '') : sender;
 
-  try {
-    const result = await pool.query(
-      `INSERT INTO messages
-         (tenant_id, channel, message, timestamp, sender)
-       VALUES ($1,$2,$3,$4,$5)
-       RETURNING *`,
-      [tenant_id, channel, message, timestamp, sender]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { rows } = await pool.query(
+    `INSERT INTO messages
+       (tenant_id, channel, message, timestamp, sender)
+     VALUES ($1,$2,$3,$4,$5)
+     RETURNING *`,
+    [tenant_id, channel, message, timestamp, sender]
+  );
+  res.status(201).json(rows[0]);
 });
 
-// webhook público (mesma lógica de insert em messages)
+// webhook público
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
-
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
-  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '')  : sender;
+  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '') : sender;
 
-  try {
-    const result = await pool.query(
-      `INSERT INTO messages
-         (tenant_id, channel, message, timestamp, sender)
-       VALUES ($1,$2,$3,$4,$5)
-       RETURNING *`,
-      [tenant_id, channel, message, timestamp, sender]
-    );
-    res.status(201).json({
-      status: 'success',
-      message: 'Mensagem registrada',
-      data: result.rows[0]
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { rows } = await pool.query(
+    `INSERT INTO messages
+       (tenant_id, channel, message, timestamp, sender)
+     VALUES ($1,$2,$3,$4,$5)
+     RETURNING *`,
+    [tenant_id, channel, message, timestamp, sender]
+  );
+  res.status(201).json({
+    status: 'success',
+    message: 'Mensagem registrada',
+    data: rows[0],
+  });
 });
 
 // roda as migrations e inicia o servidor
