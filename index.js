@@ -6,53 +6,52 @@ const cors = require('cors');
 const axios = require('axios');
 const pool = require('./db');
 const authRoutes = require('./routes/auth');
-const instagramRoutes = require('./routes/instagram'); // ✅ NOVA ROTA
+const instagramRoutes = require('./routes/instagram'); // ✅ NOVO: Rotas do Instagram
 const authenticate = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- MIGRATION: cria tabela users se não existir ---
+// --- MIGRATIONS: criar tabelas se não existirem ---
 const createUsersTable = `
   CREATE TABLE IF NOT EXISTS users (
-    id             SERIAL PRIMARY KEY,
-    name           TEXT,
-    email          TEXT   NOT NULL UNIQUE,
-    password_hash  TEXT   NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login     TIMESTAMPTZ NOT NULL DEFAULT now()
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 `;
 
-// --- MIGRATION: cria tabela messages se não existir ---
 const createMessagesTable = `
   CREATE TABLE IF NOT EXISTS messages (
-    id                      SERIAL PRIMARY KEY,
-    tenant_id               TEXT   NOT NULL,
-    channel                 TEXT   NOT NULL,
-    message                 TEXT   NOT NULL,
-    timestamp               TIMESTAMPTZ NOT NULL DEFAULT now(),
-    sender                  TEXT   NOT NULL,
-    sender_username         TEXT,
-    sender_profile_picture  TEXT
+    id SERIAL PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    message TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sender TEXT NOT NULL,
+    sender_username TEXT,
+    sender_profile_picture TEXT
   );
 `;
 
-// rotas
+// --- ROTAS ---
 app.use('/auth', authRoutes);
-app.use('/api', instagramRoutes); // ✅ NOVA ROTA API INSTAGRAM
+app.use('/api', instagramRoutes); // ✅ Aqui conectamos as rotas de Instagram
 
-// health check
+// --- Health check ---
 app.get('/', (_req, res) => res.send('API NuvemChat online 🚀'));
 
-// rota protegida de teste de conexão
+// --- Teste de conexão com banco ---
 app.get('/testdb', authenticate, async (_req, res) => {
   const { rows } = await pool.query('SELECT NOW()');
   res.json(rows[0]);
 });
 
-// debug colunas
+// --- Debug colunas da tabela messages ---
 app.get('/debug/columns', authenticate, async (_req, res) => {
   const { rows } = await pool.query(`
     SELECT column_name
@@ -62,7 +61,7 @@ app.get('/debug/columns', authenticate, async (_req, res) => {
   res.json(rows);
 });
 
-// listagem de mensagens
+// --- Listar mensagens ---
 app.get('/messages', authenticate, async (req, res) => {
   const { tenant_id, channel } = req.query;
   let sql = 'SELECT * FROM messages';
@@ -85,33 +84,33 @@ app.get('/messages', authenticate, async (req, res) => {
   res.json(rows);
 });
 
-// inserir mensagem manual
+// --- Inserir mensagem manual ---
 app.post('/messages', authenticate, async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
-  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '') : sender;
+  sender  = typeof sender === 'string' ? sender.replace(/^=/, '') : sender;
 
   const { rows } = await pool.query(
     `INSERT INTO messages
       (tenant_id, channel, message, timestamp, sender)
-    VALUES ($1,$2,$3,$4,$5)
-    RETURNING *`,
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
     [tenant_id, channel, message, timestamp, sender]
   );
   res.status(201).json(rows[0]);
 });
 
-// webhook público (n8n ou outros fluxos)
+// --- Webhook de mensagens externas (ex: n8n) ---
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
-  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '') : sender;
+  sender  = typeof sender === 'string' ? sender.replace(/^=/, '') : sender;
 
   const { rows } = await pool.query(
     `INSERT INTO messages
       (tenant_id, channel, message, timestamp, sender)
-    VALUES ($1,$2,$3,$4,$5)
-    RETURNING *`,
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
     [tenant_id, channel, message, timestamp, sender]
   );
   res.status(201).json({
@@ -121,7 +120,7 @@ app.post('/webhook/message', async (req, res) => {
   });
 });
 
-// inicia servidor
+// --- Inicializar servidor ---
 (async () => {
   try {
     await pool.query(createUsersTable);
@@ -137,4 +136,3 @@ app.post('/webhook/message', async (req, res) => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
   });
 })();
-
