@@ -1,9 +1,9 @@
 // index.js
 require('dotenv').config();
 
-const express   = require('express');
-const cors      = require('cors');
-const pool      = require('./db');
+const express       = require('express');
+const cors          = require('cors');
+const pool          = require('./db');
 const authRoutes    = require('./routes/auth');
 const authenticate  = require('./middleware/auth');
 
@@ -22,14 +22,26 @@ const createUsersTable = `
   );
 `;
 
-// rotas de auth (register/login)
+// --- MIGRATION: cria tabela messages se não existir ---
+const createMessagesTable = `
+  CREATE TABLE IF NOT EXISTS messages (
+    id          SERIAL PRIMARY KEY,
+    tenant_id   TEXT   NOT NULL,
+    channel     TEXT   NOT NULL,
+    message     TEXT   NOT NULL,
+    timestamp   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sender      TEXT   NOT NULL
+  );
+`;
+
+// monta as rotas de autenticação (register / login)
 app.use('/auth', authRoutes);
 
 // health check
 app.get('/', (_req, res) => res.send('API NuvemChat online 🚀'));
 
-// rota protegida de teste DB
-app.get('/testdb', authenticate, async (req, res) => {
+// rota protegida de teste de conexão com o banco
+app.get('/testdb', authenticate, async (_req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
     res.json(result.rows[0]);
@@ -38,8 +50,8 @@ app.get('/testdb', authenticate, async (req, res) => {
   }
 });
 
-// debug colunas
-app.get('/debug/columns', authenticate, async (req, res) => {
+// debug colunas da tabela messages
+app.get('/debug/columns', authenticate, async (_req, res) => {
   try {
     const cols = await pool.query(`
       SELECT column_name
@@ -52,7 +64,7 @@ app.get('/debug/columns', authenticate, async (req, res) => {
   }
 });
 
-// listagem de mensagens
+// listagem de mensagens (com filtros opcionais)
 app.get('/messages', authenticate, async (req, res) => {
   const { tenant_id, channel } = req.query;
   let sql = 'SELECT * FROM messages';
@@ -79,16 +91,19 @@ app.get('/messages', authenticate, async (req, res) => {
   }
 });
 
-// inserir mensagem manual (trim “=”)
+// inserir mensagem manual (trim “=” caso comece com igual)
 app.post('/messages', authenticate, async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
 
-  message = (typeof message === 'string' ? message.replace(/^=/, '') : message);
-  sender  = (typeof sender  === 'string' ? sender.replace(/^=/,  '') : sender);
+  message = typeof message === 'string' ? message.replace(/^=/, '') : message;
+  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '')  : sender;
 
   try {
     const result = await pool.query(
-      'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      `INSERT INTO messages
+         (tenant_id, channel, message, timestamp, sender)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING *`,
       [tenant_id, channel, message, timestamp, sender]
     );
     res.status(201).json(result.rows[0]);
@@ -97,16 +112,19 @@ app.post('/messages', authenticate, async (req, res) => {
   }
 });
 
-// webhook público (trim “=”)
+// webhook público (mesma lógica de insert em messages)
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
 
-  message = (typeof message === 'string' ? message.replace(/^=/, '') : message);
-  sender  = (typeof sender  === 'string' ? sender.replace(/^=/,  '') : sender);
+  message = typeof message === 'string' ? message.replace(/^=/, '') : message;
+  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '')  : sender;
 
   try {
     const result = await pool.query(
-      'INSERT INTO messages (tenant_id, channel, message, timestamp, sender) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      `INSERT INTO messages
+         (tenant_id, channel, message, timestamp, sender)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING *`,
       [tenant_id, channel, message, timestamp, sender]
     );
     res.status(201).json({
@@ -119,17 +137,19 @@ app.post('/webhook/message', async (req, res) => {
   }
 });
 
-// migração + start do servidor
+// roda as migrations e inicia o servidor
 (async () => {
   try {
     await pool.query(createUsersTable);
     console.log('✅ Tabela "users" pronta');
+    await pool.query(createMessagesTable);
+    console.log('✅ Tabela "messages" pronta');
   } catch (err) {
-    console.error('❌ Erro criando tabela users:', err);
+    console.error('❌ Erro na migração das tabelas:', err);
   }
 
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => {
-    console.log(`🚀 Servidor rodando na porta ${port}`);
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
   });
 })();
