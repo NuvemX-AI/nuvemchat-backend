@@ -1,43 +1,48 @@
 // routes/instagram.js
 const express = require('express');
 const router = express.Router();
+const fetch = require('node-fetch'); // ✅ garantir o fetch no Node.js
 require('dotenv').config();
 
 // =====================================
-// ROTA: POST /api/instagram/connect
-// Gera a URL para o usuário conectar o Instagram
+// POST /api/instagram/connect
+// Gera a URL de conexão OAuth do Instagram
 // =====================================
-router.post('/connect', async (req, res) => {
+router.post('/instagram/connect', async (_req, res) => {
   try {
     const clientId = process.env.INSTAGRAM_CLIENT_ID;
     const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
 
-    const instagramAuthUrl = `https://api.instagram.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user_profile,user_media&response_type=code`;
+    if (!clientId || !redirectUri) {
+      return res.status(500).json({ message: 'Variáveis de ambiente do Instagram faltando.' });
+    }
 
-    return res.status(200).json({ url: instagramAuthUrl });
+    const scope = 'user_profile,user_media';
+    const authUrl = `https://api.instagram.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code`;
+
+    return res.status(200).json({ url: authUrl });
   } catch (error) {
-    console.error('Erro ao gerar URL de autorização do Instagram:', error.message);
-    return res.status(500).json({ message: 'Erro ao conectar com Instagram' });
+    console.error('❌ Erro ao gerar URL de autorização do Instagram:', error.message);
+    return res.status(500).json({ message: 'Erro ao gerar URL de conexão com o Instagram.' });
   }
 });
 
 // =====================================
-// ROTA: GET /api/instagram/callback
-// Recebe o "code" do Instagram e troca pelo access_token
+// GET /api/instagram/callback
+// Recebe o code do Instagram e troca pelo access_token
 // =====================================
-router.get('/callback', async (req, res) => {
+router.get('/instagram/callback', async (req, res) => {
   try {
     const { code } = req.query;
 
     if (!code) {
-      return res.status(400).json({ message: 'Código de autorização não encontrado.' });
+      return res.status(400).send('Código de autorização não encontrado.');
     }
 
     const clientId = process.env.INSTAGRAM_CLIENT_ID;
     const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET;
     const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
 
-    // Trocar o code por access_token
     const tokenResponse = await fetch('https://api.instagram.com/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -53,22 +58,23 @@ router.get('/callback', async (req, res) => {
     const tokenData = await tokenResponse.json();
 
     if (tokenData.error_type) {
-      throw new Error(tokenData.error_message || 'Erro ao trocar code por token.');
+      console.error('❌ Erro no token:', tokenData.error_message);
+      throw new Error(tokenData.error_message || 'Erro ao trocar o code pelo token.');
     }
 
     const { access_token, user_id } = tokenData;
 
-    console.log('✅ Access Token:', access_token);
-    console.log('✅ User ID:', user_id);
+    console.log('✅ Access Token recebido:', access_token);
+    console.log('✅ User ID recebido:', user_id);
 
-    // (Opcional) Aqui você poderia salvar o access_token e user_id no banco para o usuário logado
+    // (Opcional) Aqui você poderia salvar o access_token e o user_id no banco para uso futuro
 
-    // Redirecionar o usuário de volta para o painel
-    return res.redirect('http://localhost:8080/integrations?connected=instagram');
+    // Redireciona para o painel com sucesso
+    return res.redirect('http://localhost:8080/integracoes?connected=instagram');
 
   } catch (error) {
-    console.error('❌ Erro no callback Instagram:', error.message);
-    return res.status(500).send('Erro ao conectar com o Instagram.');
+    console.error('❌ Erro no callback do Instagram:', error.message);
+    return res.status(500).send('Erro no processo de autenticação com o Instagram.');
   }
 });
 
