@@ -1,11 +1,11 @@
 // index.js
 require('dotenv').config();
 
-const express       = require('express');
-const cors          = require('cors');
-const pool          = require('./db');
-const authRoutes    = require('./routes/auth');
-const authenticate  = require('./middleware/auth');
+const express = require('express');
+const cors = require('cors');
+const pool = require('./db');
+const authRoutes = require('./routes/auth');
+const authenticate = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
@@ -15,7 +15,7 @@ app.use(express.json());
 const createUsersTable = `
   CREATE TABLE IF NOT EXISTS users (
     id             SERIAL PRIMARY KEY,
-    name           TEXT,                -- ⚠️ lembre de ter coluna "name" se você registra nome
+    name           TEXT,
     email          TEXT   NOT NULL UNIQUE,
     password_hash  TEXT   NOT NULL,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -96,7 +96,7 @@ app.post('/messages', authenticate, async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-// webhook público
+// webhook público (via n8n ou outros)
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
@@ -116,19 +116,37 @@ app.post('/webhook/message', async (req, res) => {
   });
 });
 
-// roda as migrations e inicia o servidor
+// ✅ webhook do Instagram (verificação e recebimento de eventos)
+const VERIFY_TOKEN = 'nuvemchatcrm123'; // Defina o mesmo que colocou no painel do Meta!
+
+// verificação do webhook (GET)
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token) {
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+      console.log('✅ WEBHOOK VERIFICADO COM SUCESSO');
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
+    }
+  } else {
+    res.sendStatus(400);
+  }
+});
+
+// recebimento de mensagens (POST)
+app.post('/webhook', (req, res) => {
+  console.log('📩 Evento recebido do Instagram:', JSON.stringify(req.body, null, 2));
+  res.sendStatus(200);
+});
+
+// --- inicia servidor
 (async () => {
   try {
     await pool.query(createUsersTable);
     console.log('✅ Tabela "users" pronta');
     await pool.query(createMessagesTable);
-    console.log('✅ Tabela "messages" pronta');
-  } catch (err) {
-    console.error('❌ Erro na migração das tabelas:', err);
-  }
-
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  });
-})();
+    console
