@@ -96,7 +96,7 @@ app.post('/messages', authenticate, async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-// webhook público (via n8n ou outros)
+// webhook público para mensagens do n8n ou outros fluxos
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
@@ -116,10 +116,10 @@ app.post('/webhook/message', async (req, res) => {
   });
 });
 
-// ✅ webhook do Instagram (verificação e recebimento de eventos)
-const VERIFY_TOKEN = 'nuvemchatcrm123'; // Defina o mesmo que colocou no painel do Meta!
+// ✅ Webhook do Instagram Business: verificação (GET) + recebimento de mensagens (POST)
+const VERIFY_TOKEN = 'nuvemchatcrm123'; // o mesmo que você cadastrou no Facebook Developers!
 
-// verificação do webhook (GET)
+// GET - Verificação do webhook
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -130,6 +130,7 @@ app.get('/webhook', (req, res) => {
       console.log('✅ WEBHOOK VERIFICADO COM SUCESSO');
       res.status(200).send(challenge);
     } else {
+      console.log('❌ Falha na verificação do webhook');
       res.sendStatus(403);
     }
   } else {
@@ -137,7 +138,7 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// recebimento de mensagens (POST)
+// POST - Recebimento de mensagens do Instagram
 app.post('/webhook', (req, res) => {
   console.log('📩 Evento recebido do Instagram:', JSON.stringify(req.body, null, 2));
   res.sendStatus(200);
@@ -149,4 +150,13 @@ app.post('/webhook', (req, res) => {
     await pool.query(createUsersTable);
     console.log('✅ Tabela "users" pronta');
     await pool.query(createMessagesTable);
-    console
+    console.log('✅ Tabela "messages" pronta');
+  } catch (err) {
+    console.error('❌ Erro na migração das tabelas:', err);
+  }
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  });
+})();
