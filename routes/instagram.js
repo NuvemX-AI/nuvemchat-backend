@@ -1,21 +1,21 @@
 // routes/instagram.js
 const express = require('express');
 const router = express.Router();
+require('dotenv').config();
 
-const INSTAGRAM_CLIENT_ID = process.env.INSTAGRAM_CLIENT_ID;
-const INSTAGRAM_REDIRECT_URI = process.env.INSTAGRAM_REDIRECT_URI;
-
-router.get('/auth/instagram', async (req, res) => {
+// /api/instagram/connect
+router.post('/connect', async (req, res) => {
   try {
-    const scope = 'user_profile,user_media'; // permissões
-    const authUrl = `https://api.instagram.com/oauth/authorize?client_id=${INSTAGRAM_CLIENT_ID}&redirect_uri=${encodeURIComponent(INSTAGRAM_REDIRECT_URI)}&scope=${scope}&response_type=code`;
+    const clientId = process.env.INSTAGRAM_CLIENT_ID;
+    const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
 
-    res.json({ url: authUrl });
+    const instagramAuthUrl = `https://api.instagram.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user_profile,user_media&response_type=code`;
+
+    return res.status(200).json({ url: instagramAuthUrl });
   } catch (error) {
-    console.error('Erro ao gerar URL de autorização Instagram:', error);
-    res.status(500).json({ message: 'Erro ao gerar URL de autorização' });
+    console.error('Erro ao gerar URL de autorização do Instagram:', error.message);
+    return res.status(500).json({ message: 'Erro ao conectar com Instagram' });
   }
 });
 
 module.exports = router;
-
