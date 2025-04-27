@@ -1,11 +1,11 @@
 // index.js
 require('dotenv').config();
 
-const express = require('express');
-const cors = require('cors');
-const pool = require('./db');
-const authRoutes = require('./routes/auth');
-const authenticate = require('./middleware/auth');
+const express       = require('express');
+const cors          = require('cors');
+const pool          = require('./db');
+const authRoutes    = require('./routes/auth');
+const authenticate  = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
@@ -35,7 +35,7 @@ const createMessagesTable = `
   );
 `;
 
-// monta as rotas de autenticação (register / login)
+// monta as rotas de autenticação
 app.use('/auth', authRoutes);
 
 // health check
@@ -96,7 +96,7 @@ app.post('/messages', authenticate, async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-// webhook público para mensagens do n8n ou outros fluxos
+// webhook público - receber mensagens
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
@@ -116,21 +116,19 @@ app.post('/webhook/message', async (req, res) => {
   });
 });
 
-// ✅ Webhook do Instagram Business: verificação (GET) + recebimento de mensagens (POST)
-const VERIFY_TOKEN = 'nuvemchatcrm123'; // o mesmo que você cadastrou no Facebook Developers!
+// webhook para validação do Instagram
+app.get('/api/webhook/instagram', (req, res) => {
+  const VERIFY_TOKEN = 'nuvemchatcrm123';
 
-// GET - Verificação do webhook
-app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
   if (mode && token) {
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-      console.log('✅ WEBHOOK VERIFICADO COM SUCESSO');
+      console.log('✅ Webhook verificado com sucesso.');
       res.status(200).send(challenge);
     } else {
-      console.log('❌ Falha na verificação do webhook');
       res.sendStatus(403);
     }
   } else {
@@ -138,13 +136,7 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// POST - Recebimento de mensagens do Instagram
-app.post('/webhook', (req, res) => {
-  console.log('📩 Evento recebido do Instagram:', JSON.stringify(req.body, null, 2));
-  res.sendStatus(200);
-});
-
-// --- inicia servidor
+// roda as migrations e inicia o servidor
 (async () => {
   try {
     await pool.query(createUsersTable);
