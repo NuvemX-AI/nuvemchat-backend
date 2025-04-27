@@ -1,11 +1,12 @@
 // index.js
 require('dotenv').config();
 
-const express       = require('express');
-const cors          = require('cors');
-const pool          = require('./db');
-const authRoutes    = require('./routes/auth');
-const authenticate  = require('./middleware/auth');
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const pool = require('./db');
+const authRoutes = require('./routes/auth');
+const authenticate = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
@@ -26,12 +27,14 @@ const createUsersTable = `
 // --- MIGRATION: cria tabela messages se não existir ---
 const createMessagesTable = `
   CREATE TABLE IF NOT EXISTS messages (
-    id          SERIAL PRIMARY KEY,
-    tenant_id   TEXT   NOT NULL,
-    channel     TEXT   NOT NULL,
-    message     TEXT   NOT NULL,
-    timestamp   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    sender      TEXT   NOT NULL
+    id                      SERIAL PRIMARY KEY,
+    tenant_id               TEXT   NOT NULL,
+    channel                 TEXT   NOT NULL,
+    message                 TEXT   NOT NULL,
+    timestamp               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sender                  TEXT   NOT NULL,
+    sender_username         TEXT,
+    sender_profile_picture  TEXT
   );
 `;
 
@@ -88,7 +91,7 @@ app.post('/messages', authenticate, async (req, res) => {
 
   const { rows } = await pool.query(
     `INSERT INTO messages
-       (tenant_id, channel, message, timestamp, sender)
+      (tenant_id, channel, message, timestamp, sender)
      VALUES ($1,$2,$3,$4,$5)
      RETURNING *`,
     [tenant_id, channel, message, timestamp, sender]
@@ -96,7 +99,7 @@ app.post('/messages', authenticate, async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-// webhook público - receber mensagens
+// webhook público do N8N (ou outros fluxos externos)
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
@@ -104,7 +107,7 @@ app.post('/webhook/message', async (req, res) => {
 
   const { rows } = await pool.query(
     `INSERT INTO messages
-       (tenant_id, channel, message, timestamp, sender)
+      (tenant_id, channel, message, timestamp, sender)
      VALUES ($1,$2,$3,$4,$5)
      RETURNING *`,
     [tenant_id, channel, message, timestamp, sender]
@@ -116,7 +119,7 @@ app.post('/webhook/message', async (req, res) => {
   });
 });
 
-// webhook para validação do Instagram
+// webhook do Instagram: verificação do Facebook
 app.get('/api/webhook/instagram', (req, res) => {
   const VERIFY_TOKEN = 'nuvemchatcrm123';
 
@@ -136,7 +139,59 @@ app.get('/api/webhook/instagram', (req, res) => {
   }
 });
 
-// roda as migrations e inicia o servidor
+// webhook do Instagram: recebimento de mensagens + username + foto
+app.post('/api/webhook/instagram', async (req, res) => {
+  try {
+    const body = req.body;
+
+    console.log('📩 Evento recebido:', JSON.stringify(body, null, 2));
+
+    if (body.object === 'instagram') {
+      for (const entry of body.entry) {
+        for (const messagingEvent of entry.messaging) {
+          const senderId = messagingEvent.sender.id;
+          const messageText = messagingEvent.message?.text || '';
+          const timestamp = new Date(messagingEvent.timestamp).toISOString();
+
+          // Access Token fixo por enquanto
+          const accessToken = 'SEU_ACCESS_TOKEN_FIXO_AQUI'; // ⚠️ depois vamos tornar dinâmico por cliente
+
+          // Buscar dados do remetente
+          const userDetailsUrl = `https://graph.facebook.com/v22.0/${senderId}?fields=id,username,profile_picture_url&access_token=${accessToken}`;
+          const { data: userDetails } = await axios.get(userDetailsUrl);
+
+          const username = userDetails.username || 'desconhecido';
+          const profilePicture = userDetails.profile_picture_url || '';
+
+          // Gravar no banco
+          await pool.query(
+            `INSERT INTO messages
+              (tenant_id, channel, message, timestamp, sender, sender_username, sender_profile_picture)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              'SEU_TENANT_ID_FIXO', // ⚠️ depois vamos tornar dinâmico pelo cliente logado
+              'instagram',
+              messageText,
+              timestamp,
+              senderId,
+              username,
+              profilePicture,
+            ]
+          );
+
+          console.log(`✅ Mensagem de @${username} gravada.`);
+        }
+      }
+    }
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('❌ Erro ao processar webhook:', error.response?.data || error.message);
+    res.sendStatus(500);
+  }
+});
+
+// inicia servidor
 (async () => {
   try {
     await pool.query(createUsersTable);
