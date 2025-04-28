@@ -2,7 +2,6 @@
 
 const express = require('express');
 const router = express.Router();
-const fetch = require('node-fetch'); // ou use global fetch no Node >=18
 require('dotenv').config();
 
 // =================================================================
@@ -10,7 +9,7 @@ require('dotenv').config();
 // =================================================================
 
 // GET  /api/webhook/instagram
-// Verificação do Meta: devolve hub.challenge se token bater
+// Verificação do Meta: devolve hub.challenge se o token bater
 router.get('/webhook/instagram', (req, res) => {
   console.log('🔔 [Instagram] GET /webhook/instagram', req.query);
   const mode      = req.query['hub.mode'];
@@ -34,7 +33,6 @@ router.post('/webhook/instagram', (req, res) => {
   return res.sendStatus(200);
 });
 
-
 // =================================================================
 // 2) OAuth Instagram: geração de URL e callback de troca de code
 // =================================================================
@@ -46,20 +44,25 @@ router.post('/instagram/connect', async (_req, res) => {
     const clientId    = process.env.INSTAGRAM_CLIENT_ID;
     const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
     if (!clientId || !redirectUri) {
-      return res.status(500).json({ message: 'Faltando variáveis de ambiente: INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI.' });
+      return res
+        .status(500)
+        .json({ message: 'Faltando variáveis de ambiente: INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI.' });
     }
 
-    const scope   = 'user_profile,user_media';
-    const authUrl = `https://api.instagram.com/oauth/authorize` +
-                    `?client_id=${clientId}` +
-                    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-                    `&scope=${scope}` +
-                    `&response_type=code`;
+    const scope = 'user_profile,user_media';
+    const authUrl =
+      `https://api.instagram.com/oauth/authorize` +
+      `?client_id=${clientId}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&scope=${scope}` +
+      `&response_type=code`;
 
     return res.status(200).json({ url: authUrl });
   } catch (error) {
     console.error('❌ Erro ao gerar URL de autorização:', error);
-    return res.status(500).json({ message: 'Erro interno ao gerar URL de autorização do Instagram.' });
+    return res
+      .status(500)
+      .json({ message: 'Erro interno ao gerar URL de autorização do Instagram.' });
   }
 });
 
@@ -76,6 +79,7 @@ router.get('/instagram/callback', async (req, res) => {
     const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET;
     const redirectUri  = process.env.INSTAGRAM_REDIRECT_URI;
 
+    // Usa fetch nativo do Node.js v18+
     const response = await fetch('https://api.instagram.com/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -101,7 +105,8 @@ router.get('/instagram/callback', async (req, res) => {
     // TODO: Salvar access_token e user_id no banco, associado ao tenant/usuário
 
     // Redireciona para o front-end com flag de sucesso
-    return res.redirect('http://localhost:8080/integracoes?connected=instagram');
+    const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
+    return res.redirect(`${frontend}/integracoes?connected=instagram`);
   } catch (error) {
     console.error('❌ Erro no callback do Instagram:', error);
     return res.status(500).send('Erro no processo de autenticação do Instagram.');
