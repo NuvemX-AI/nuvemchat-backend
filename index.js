@@ -1,19 +1,20 @@
 // index.js
-require('dotenv').config();
+require('dotenv').config();                     // carrega INSTAGRAM_*, VERIFY_TOKEN etc.
 
 const express = require('express');
-const cors = require('cors');
-const axios = require('axios');
-const pool = require('./db');
-const authRoutes = require('./routes/auth');
-const instagramRoutes = require('./routes/instagram'); // ✅ NOVO: Rotas do Instagram
-const authenticate = require('./middleware/auth');
+const cors    = require('cors');
+const axios   = require('axios');
+const pool    = require('./db');
+
+const authRoutes      = require('./routes/auth');
+const instagramRoutes = require('./routes/instagram'); // suas rotas corrigidas
+const authenticate    = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- MIGRATIONS: criar tabelas se não existirem ---
+// --- MIGRATIONS: cria as tabelas se não existirem ---
 const createUsersTable = `
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -38,61 +39,62 @@ const createMessagesTable = `
   );
 `;
 
-// --- ROTAS ---
+// --- ROTAS PÚBLICAS ---
 app.use('/auth', authRoutes);
-app.use('/api', instagramRoutes); // ✅ Aqui conectamos as rotas de Instagram
+
+// --- ROTAS DO INSTAGRAM (OAuth + Webhook) ---
+app.use('/api', instagramRoutes);
 
 // --- Health check ---
 app.get('/', (_req, res) => res.send('API NuvemChat online 🚀'));
 
-// --- Teste de conexão com banco ---
+// --- Teste de conexão com banco (protected) ---
 app.get('/testdb', authenticate, async (_req, res) => {
   const { rows } = await pool.query('SELECT NOW()');
   res.json(rows[0]);
 });
 
-// --- Debug colunas da tabela messages ---
+// --- Debug colunas da tabela messages (protected) ---
 app.get('/debug/columns', authenticate, async (_req, res) => {
   const { rows } = await pool.query(`
     SELECT column_name
-    FROM information_schema.columns
-    WHERE table_name = 'messages';
+      FROM information_schema.columns
+     WHERE table_name = 'messages';
   `);
   res.json(rows);
 });
 
-// --- Listar mensagens ---
+// --- Listar mensagens (protected) ---
 app.get('/messages', authenticate, async (req, res) => {
   const { tenant_id, channel } = req.query;
   let sql = 'SELECT * FROM messages';
   const params = [];
 
   if (tenant_id && channel) {
-    sql += ' WHERE tenant_id = $1 AND channel = $2';
+    sql   += ' WHERE tenant_id = $1 AND channel = $2';
     params.push(tenant_id, channel);
   } else if (tenant_id) {
-    sql += ' WHERE tenant_id = $1';
+    sql   += ' WHERE tenant_id = $1';
     params.push(tenant_id);
   } else if (channel) {
-    sql += ' WHERE channel = $1';
+    sql   += ' WHERE channel = $1';
     params.push(channel);
   }
 
   sql += ' ORDER BY id DESC LIMIT 100';
-
   const { rows } = await pool.query(sql, params);
   res.json(rows);
 });
 
-// --- Inserir mensagem manual ---
+// --- Inserir mensagem manual (protected) ---
 app.post('/messages', authenticate, async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
-  sender  = typeof sender === 'string' ? sender.replace(/^=/, '') : sender;
+  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '')  : sender;
 
   const { rows } = await pool.query(
     `INSERT INTO messages
-      (tenant_id, channel, message, timestamp, sender)
+       (tenant_id, channel, message, timestamp, sender)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
     [tenant_id, channel, message, timestamp, sender]
@@ -104,11 +106,11 @@ app.post('/messages', authenticate, async (req, res) => {
 app.post('/webhook/message', async (req, res) => {
   let { tenant_id, channel, message, timestamp, sender } = req.body;
   message = typeof message === 'string' ? message.replace(/^=/, '') : message;
-  sender  = typeof sender === 'string' ? sender.replace(/^=/, '') : sender;
+  sender  = typeof sender  === 'string' ? sender.replace(/^=/, '')  : sender;
 
   const { rows } = await pool.query(
     `INSERT INTO messages
-      (tenant_id, channel, message, timestamp, sender)
+       (tenant_id, channel, message, timestamp, sender)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
     [tenant_id, channel, message, timestamp, sender]
@@ -120,7 +122,7 @@ app.post('/webhook/message', async (req, res) => {
   });
 });
 
-// --- Inicializar servidor ---
+// --- Inicializa tabelas e sobe o servidor ---
 (async () => {
   try {
     await pool.query(createUsersTable);
