@@ -105,7 +105,7 @@ router.get('/instagram/callback', async (req, res) => {
 
     const [tenantId] = (state || '').toString().split(':');
 
-    // Troca code → access_token (short-lived)
+    // Troca code → access_token (short‑lived)
     const tokenRes = await axios.get(FB_OAUTH_TOKEN_URL, {
       params: {
         client_id:     process.env.INSTAGRAM_CLIENT_ID,
@@ -118,14 +118,27 @@ router.get('/instagram/callback', async (req, res) => {
     const { access_token } = tokenRes.data;
     console.log('✅ Access Token:', access_token);
 
-    // Descobrir user_id + username
+    // Descobrir user_id (passo mínimo)
     const meRes = await axios.get(`https://graph.facebook.com/${GRAPH_VERSION}/me`, {
-      params: { fields: 'id,username', access_token }
+      params: { fields: 'id', access_token }
     });
-    const { id: user_id, username } = meRes.data;
-    console.log('✅ IG User ID:', user_id, '| Username:', username);
+    const { id: fb_user_id } = meRes.data;
+    console.log('✅ Facebook User ID:', fb_user_id);
 
-    // TODO: persistir em "instagram_integrations" (tenant_id, access_token, user_id, username)
+    // ------------------------------------------------------------
+    // Opcional: descobrir a conta Instagram Business vinculada
+    // ------------------------------------------------------------
+    // const pages = await axios.get(`https://graph.facebook.com/${GRAPH_VERSION}/me/accounts`, {
+    //   params: { fields: 'instagram_business_account', access_token }
+    // });
+    // const igAccount = pages.data.data.find(p => p.instagram_business_account);
+    // const user_id  = igAccount?.instagram_business_account?.id;
+    // console.log('✅ IG Business ID:', user_id);
+    // ------------------------------------------------------------
+
+    const user_id = fb_user_id; // temporário: use FB user id se não precisar de IG ID
+
+    // TODO: persistir em "instagram_integrations" (tenant_id, access_token, user_id) em "instagram_integrations" (tenant_id, access_token, user_id, username)
 
     // Redirecionar para o front-end
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
