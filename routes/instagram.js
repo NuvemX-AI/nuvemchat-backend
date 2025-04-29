@@ -1,22 +1,4 @@
 // routes/instagram.js
-// ------------------------------------------------------------
-// Integração Instagram Business (Graph API) via Facebook Login
-// ------------------------------------------------------------
-// • Webhook de verificação/recebimento de eventos
-// • Geração da URL de OAuth (Facebook Login ⇢ Instagram)
-// • Callback: troca `code` ➜ `access_token`, captura `user_id`
-// ------------------------------------------------------------
-// OBS:
-// 1) Requer as variáveis no .env:
-//    INSTAGRAM_CLIENT_ID=719915063935873
-//    INSTAGRAM_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-//    INSTAGRAM_REDIRECT_URI=https://nuvemchat-backend-production.up.railway.app/api/instagram/callback
-//    FRONTEND_URL=http://localhost:8080
-//    FACEBOOK_GRAPH_VERSION=v19.0          # opcional (default)
-// 2) Endpoint antigo `api.instagram.com/oauth/authorize` (Basic Display)
-//    foi descontinuado em 2024-12. Este arquivo já usa o fluxo oficial
-//    Facebook Login / Business Login.
-
 const express = require('express');
 const axios   = require('axios');
 const crypto  = require('crypto');
@@ -24,18 +6,11 @@ require('dotenv').config();
 
 const router  = express.Router();
 
-//--------------------------------------------------------------------
-// Helpers
-//--------------------------------------------------------------------
 const GRAPH_VERSION      = process.env.FACEBOOK_GRAPH_VERSION || 'v19.0';
 const FB_DIALOG_OAUTH    = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
 const FB_OAUTH_TOKEN_URL = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
 
-//--------------------------------------------------------------------
-// 1) Webhook do Instagram: verificação e recebimento de eventos
-//--------------------------------------------------------------------
-
-// GET  /api/webhook/instagram
+// Webhook GET: verificação
 router.get('/webhook/instagram', (req, res) => {
   const mode      = req.query['hub.mode'];
   const token     = req.query['hub.verify_token'];
@@ -51,19 +26,13 @@ router.get('/webhook/instagram', (req, res) => {
   return res.sendStatus(403);
 });
 
-// POST /api/webhook/instagram
+// Webhook POST: eventos
 router.post('/webhook/instagram', (req, res) => {
   console.log('📬 [Instagram] Evento Webhook:', JSON.stringify(req.body, null, 2));
-  // TODO: processar eventos de mensagens/comentários aqui
   return res.sendStatus(200);
 });
 
-//--------------------------------------------------------------------
-// 2) OAuth Instagram (Facebook Login → Graph API)
-//--------------------------------------------------------------------
-
 // POST /api/instagram/connect
-// body opcional: { tenant_id: "T1" }
 router.post('/instagram/connect', (req, res) => {
   const clientId    = process.env.INSTAGRAM_CLIENT_ID;
   const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
@@ -80,9 +49,7 @@ router.post('/instagram/connect', (req, res) => {
     'instagram_manage_messages'
   ].join(',');
 
-  // State: tenant + nonce para evitar CSRF
   const state = `${tenantId}:${crypto.randomUUID()}`;
-
   const params = new URLSearchParams({
     client_id:     clientId,
     redirect_uri:  redirectUri,
@@ -105,7 +72,6 @@ router.get('/instagram/callback', async (req, res) => {
 
     const [tenantId] = (state || '').toString().split(':');
 
-    // Troca code → access_token (short‑lived)
     const tokenRes = await axios.get(FB_OAUTH_TOKEN_URL, {
       params: {
         client_id:     process.env.INSTAGRAM_CLIENT_ID,
@@ -118,7 +84,6 @@ router.get('/instagram/callback', async (req, res) => {
     const { access_token } = tokenRes.data;
     console.log('✅ Access Token:', access_token);
 
-    // 1) Listar páginas administradas que tenham conta IG
     const pagesRes = await axios.get(
       `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts`,
       {
@@ -140,7 +105,6 @@ router.get('/instagram/callback', async (req, res) => {
 
     const igId = page.instagram_business_account.id;
 
-    // 2) Buscar username + foto da conta IG
     const igRes = await axios.get(
       `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`,
       {
@@ -154,7 +118,6 @@ router.get('/instagram/callback', async (req, res) => {
     const { id, username, profile_picture_url } = igRes.data;
     console.log('✅ IG Business ID:', id, '(@', username, ')');
 
-    // 3) Persistir
     await req.db('instagram_integrations')
       .insert({
         tenant_id: tenantId,
@@ -167,9 +130,6 @@ router.get('/instagram/callback', async (req, res) => {
       .onConflict('tenant_id')
       .merge();
 
-    // 4) Redirecionar para o front-end
-    const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
-    return res.redirect(`${frontend}/integrations/instagram/success`);
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
     return res.redirect(`${frontend}/integrations/instagram/success`);
 
