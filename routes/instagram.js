@@ -8,6 +8,8 @@ require('dotenv').config();
 // 1) Webhook do Instagram: verificação e recebimento de eventos
 // =================================================================
 
+// GET /api/webhook/instagram
+// Valida o token de verificação e retorna o hub.challenge
 router.get('/webhook/instagram', (req, res) => {
   console.log('🔔 [Instagram] GET /webhook/instagram', req.query);
   const mode      = req.query['hub.mode'];
@@ -23,8 +25,11 @@ router.get('/webhook/instagram', (req, res) => {
   return res.sendStatus(403);
 });
 
+// POST /api/webhook/instagram
+// Recebe eventos de mensagens, comentários, etc.
 router.post('/webhook/instagram', (req, res) => {
   console.log('📬 Evento de Webhook recebido:', JSON.stringify(req.body, null, 2));
+  // TODO: processe req.body.entry e salve no banco, emita eventos, etc.
   return res.sendStatus(200);
 });
 
@@ -32,6 +37,8 @@ router.post('/webhook/instagram', (req, res) => {
 // 2) OAuth Instagram Graph API: geração de URL e callback de troca de code
 // =================================================================
 
+// POST /api/instagram/connect
+// Gera a URL de autorização usando o Facebook OAuth Dialog
 router.post('/instagram/connect', async (_req, res) => {
   try {
     const clientId    = process.env.INSTAGRAM_CLIENT_ID;
@@ -66,6 +73,8 @@ router.post('/instagram/connect', async (_req, res) => {
   }
 });
 
+// GET /api/instagram/callback
+// Recebe o code e troca pelo access_token via Graph API
 router.get('/instagram/callback', async (req, res) => {
   try {
     const code = req.query.code;
@@ -96,8 +105,9 @@ router.get('/instagram/callback', async (req, res) => {
     console.log('✅ Access Token recebido:', access_token);
     console.log('✅ User ID recebido:', user_id);
 
-    // TODO: salvar no banco...
+    // TODO: salvar access_token e user_id no banco, associado ao usuário/tenant
 
+    // redireciona para o front-end com flag de sucesso
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
     return res.redirect(`${frontend}/integracoes?connected=instagram`);
   } catch (error) {
