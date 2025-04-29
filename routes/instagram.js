@@ -1,14 +1,14 @@
 // routes/instagram.js
 const express = require('express');
-const axios = require('axios');
-const crypto = require('crypto');
-const pool = require('../db');
+const axios   = require('axios');
+const crypto  = require('crypto');
+const pool    = require('../db');
 require('dotenv').config();
 
 const router = express.Router();
 
-const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v19.0';
-const FB_DIALOG_OAUTH = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
+const GRAPH_VERSION      = process.env.FACEBOOK_GRAPH_VERSION || 'v19.0';
+const FB_DIALOG_OAUTH    = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
 const FB_OAUTH_TOKEN_URL = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
 
 // 1) Webhook GET: verificação do webhook
@@ -48,11 +48,13 @@ router.post('/instagram/connect', (req, res) => {
     });
   }
 
+  // adicione pages_messaging aqui:
   const scope = [
     'instagram_basic',
     'pages_show_list',
     'instagram_manage_comments',
-    'instagram_manage_messages'
+    'instagram_manage_messages',
+    'pages_messaging'
   ].join(',');
 
   // state = tenant + nonce para evitar CSRF
@@ -164,4 +166,3 @@ router.get('/instagram/callback', async (req, res) => {
 });
 
 module.exports = router;
-
