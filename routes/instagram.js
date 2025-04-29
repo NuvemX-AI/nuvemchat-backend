@@ -1,33 +1,20 @@
 // routes/instagram.js
-// ------------------------------------------------------------
-// Integração Instagram Business (Graph API) via Facebook Login
-// ------------------------------------------------------------
 
 const express = require('express');
-const axios   = require('axios');
-const crypto  = require('crypto');
+const router  = express.Router();
 require('dotenv').config();
 
-const router = express.Router();
-
-//--------------------------------------------------------------------
-// Configurações do Graph API
-//--------------------------------------------------------------------
-const GRAPH_VERSION      = process.env.FACEBOOK_GRAPH_VERSION || 'v19.0';
-const FB_DIALOG_OAUTH    = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
-const FB_OAUTH_TOKEN_URL = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
-
-//--------------------------------------------------------------------
+// =================================================================
 // 1) Webhook do Instagram: verificação e recebimento de eventos
-//--------------------------------------------------------------------
+// =================================================================
 
-// GET  /api/webhook/instagram
+// GET /api/webhook/instagram
+// Valida o token de verificação e retorna o hub.challenge
 router.get('/webhook/instagram', (req, res) => {
+  console.log('🔔 [Instagram] GET /webhook/instagram', req.query);
   const mode      = req.query['hub.mode'];
   const token     = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
-  console.log('🔔 [Instagram] Verificação de Webhook', req.query);
 
   if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
     console.log('✅ WEBHOOK_VERIFIED');
@@ -39,125 +26,90 @@ router.get('/webhook/instagram', (req, res) => {
 });
 
 // POST /api/webhook/instagram
+// Recebe eventos de mensagens, comentários, etc.
 router.post('/webhook/instagram', (req, res) => {
-  console.log('📬 [Instagram] Evento Webhook:', JSON.stringify(req.body, null, 2));
-  // TODO: processar eventos de mensagens/comentários aqui
+  console.log('📬 Evento de Webhook recebido:', JSON.stringify(req.body, null, 2));
   return res.sendStatus(200);
 });
 
-//--------------------------------------------------------------------
-// 2) OAuth Instagram (Facebook Login → Graph API)
-//--------------------------------------------------------------------
+// =================================================================
+// 2) OAuth Instagram Basic Display: geração de URL e callback de troca de code
+// =================================================================
 
 // POST /api/instagram/connect
-// body opcional: { tenant_id: "T1" }
-router.post('/instagram/connect', (req, res) => {
+// Gera a URL de autorização no Instagram Basic Display, com logs para debug
+router.post('/instagram/connect', (_req, res) => {
   const clientId    = process.env.INSTAGRAM_CLIENT_ID;
   const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
-  const tenantId    = req.body?.tenant_id || process.env.TENANT_ID || 'T1';
+
+  console.log('🔑 INSTAGRAM_CLIENT_ID:', clientId);
+  console.log('🔑 INSTAGRAM_REDIRECT_URI:', redirectUri);
 
   if (!clientId || !redirectUri) {
-    return res
-      .status(500)
-      .json({ message: 'INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI não configurados.' });
+    return res.status(500).json({
+      message: 'Faltando INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI no .env'
+    });
   }
 
-  const scope = [
-    'instagram_basic',
-    'pages_show_list',
-    'instagram_manage_comments',
-    'instagram_manage_messages'
-  ].join(',');
+  const scope = 'user_profile,user_media';
+  const authUrl =
+    https://api.instagram.com/oauth/authorize +
+    ?client_id=${clientId} +
+    &redirect_uri=${encodeURIComponent(redirectUri)} +
+    &scope=${scope} +
+    &response_type=code;
 
-  // State: tenant + nonce para evitar CSRF
-  const state = `${tenantId}:${crypto.randomUUID()}`;
+  console.log('🔗 authUrl gerado:', authUrl);
 
-  const params = new URLSearchParams({
-    client_id:     clientId,
-    redirect_uri:  redirectUri,
-    scope,
-    response_type: 'code',
-    state
-  });
-
-  const authUrl = `${FB_DIALOG_OAUTH}?${params.toString()}`;
-  console.log('🔗 [Instagram] authUrl gerado:', authUrl);
-
-  return res.json({ url: authUrl });
+  return res.status(200).json({ url: authUrl });
 });
 
 // GET /api/instagram/callback
+// Recebe o code e troca por access_token no Basic Display
 router.get('/instagram/callback', async (req, res) => {
   try {
-    const { code, state } = req.query;
-    if (!code) return res.status(400).send('Código de autorização ausente.');
-
-    const [tenantId] = (state || '').toString().split(':');
-
-    // Troca code → access_token (short-lived)
-    const tokenRes = await axios.get(FB_OAUTH_TOKEN_URL, {
-      params: {
-        client_id:     process.env.INSTAGRAM_CLIENT_ID,
-        client_secret: process.env.INSTAGRAM_CLIENT_SECRET,
-        redirect_uri:  process.env.INSTAGRAM_REDIRECT_URI,
-        code
-      }
-    });
-    const { access_token } = tokenRes.data;
-    console.log('✅ Access Token:', access_token);
-
-    // 1) Listar páginas administradas com conta IG
-    const pagesRes = await axios.get(
-      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts`,
-      {
-        params: {
-          fields: 'name,instagram_business_account',
-          access_token
-        }
-      }
-    );
-    const page = pagesRes.data.data.find(p => p.instagram_business_account);
-    if (!page) {
-      return res.status(400).json({
-        error: 'Nenhuma Página com conta Instagram profissional vinculada.',
-        hint:  'No app do Instagram: Configurações → Conta profissional → Centro de Contas e vincule a Página.'
-      });
+    const code = req.query.code;
+    if (!code) {
+      return res.status(400).send('Código de autorização não fornecido.');
     }
-    const igId = page.instagram_business_account.id;
 
-    // 2) Buscar username + foto da conta IG
-    const igRes = await axios.get(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`,
-      {
-        params: {
-          fields: 'id,username,profile_picture_url',
-          access_token
-        }
-      }
-    );
-    const { id, username, profile_picture_url } = igRes.data;
-    console.log('✅ IG Business ID:', id, '(@', username, ')');
+    const clientId     = process.env.INSTAGRAM_CLIENT_ID;
+    const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET;
+    const redirectUri  = process.env.INSTAGRAM_REDIRECT_URI;
 
-    // 3) Persistir no banco
-    await req.db('instagram_integrations')
-      .insert({
-        tenant_id:    tenantId,
-        user_id:      id,
-        username,
-        profile_pic:  profile_picture_url,
-        access_token,
-        connected_at: new Date()
-      })
-      .onConflict('tenant_id')
-      .merge();
+    // Troca code por access_token
+    const response = await fetch('https://api.instagram.com/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id:     clientId,
+        client_secret: clientSecret,
+        grant_type:    'authorization_code',
+        redirect_uri:  redirectUri,
+        code:          code.toString(),
+      }),
+    });
 
-    // 4) Redirecionar para o front-end
+    const data = await response.json();
+    if (data.error_type) {
+      console.error('❌ Erro no Basic Display token:', data.error_message);
+      return res.status(500).send(data.error_message || 'Erro na troca de token.');
+    }
+
+    const { access_token, user_id } = data;
+    console.log('✅ Access Token (Basic Display):', access_token);
+    console.log('✅ User ID (Basic Display):', user_id);
+
+    // TODO: salvar access_token e user_id no banco, se quiser
+
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
-    return res.redirect(`${frontend}/integrations/instagram/success`);
+    return res.redirect(${frontend}/integracoes?connected=instagram);
 
-  } catch (error) {
-    console.error('❌ Erro no callback:', error?.response?.data || error.message);
-    return res.status(500).send('Erro ao finalizar autenticação Instagram.');
+  } catch (err) {
+    console.error('❌ Erro no callback Basic Display:', err);
+    return res
+      .status(500)
+      .send('Erro no processo de autenticação Instagram Basic Display.');
   }
 });
 
