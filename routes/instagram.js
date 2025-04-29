@@ -29,7 +29,6 @@ router.get('/webhook/instagram', (req, res) => {
 // Recebe eventos de mensagens, comentários, etc.
 router.post('/webhook/instagram', (req, res) => {
   console.log('📬 Evento de Webhook recebido:', JSON.stringify(req.body, null, 2));
-  // TODO: processe req.body.entry e salve no banco…
   return res.sendStatus(200);
 });
 
@@ -38,10 +37,13 @@ router.post('/webhook/instagram', (req, res) => {
 // =================================================================
 
 // POST /api/instagram/connect
-// Gera a URL de autorização no Instagram Basic Display
+// Gera a URL de autorização no Instagram Basic Display, com logs para debug
 router.post('/instagram/connect', (_req, res) => {
   const clientId    = process.env.INSTAGRAM_CLIENT_ID;
   const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
+
+  console.log('🔑 INSTAGRAM_CLIENT_ID:', clientId);
+  console.log('🔑 INSTAGRAM_REDIRECT_URI:', redirectUri);
 
   if (!clientId || !redirectUri) {
     return res.status(500).json({
@@ -56,6 +58,8 @@ router.post('/instagram/connect', (_req, res) => {
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&scope=${scope}` +
     `&response_type=code`;
+
+  console.log('🔗 authUrl gerado:', authUrl);
 
   return res.status(200).json({ url: authUrl });
 });
@@ -98,7 +102,6 @@ router.get('/instagram/callback', async (req, res) => {
 
     // TODO: salvar access_token e user_id no banco, se quiser
 
-    // Redireciona de volta pro front
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
     return res.redirect(`${frontend}/integracoes?connected=instagram`);
 
