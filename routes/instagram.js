@@ -27,18 +27,21 @@ const router  = express.Router();
 //--------------------------------------------------------------------
 // Helpers
 //--------------------------------------------------------------------
-const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v19.0';
-const FB_DIALOG_OAUTH = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
-const FB_OAUTH_TOKEN  = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
+const GRAPH_VERSION      = process.env.FACEBOOK_GRAPH_VERSION || 'v19.0';
+const FB_DIALOG_OAUTH    = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
+const FB_OAUTH_TOKEN_URL = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
 
 //--------------------------------------------------------------------
 // 1) Webhook do Instagram: verificação e recebimento de eventos
 //--------------------------------------------------------------------
 
-// GET /api/webhook/instagram
+// GET  /api/webhook/instagram
 router.get('/webhook/instagram', (req, res) => {
-  const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query;
-  console.log('🔔 [Instagram] Verificação webhook', req.query);
+  const mode      = req.query['hub.mode'];
+  const token     = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  console.log('🔔 [Instagram] Verificação de Webhook', req.query);
 
   if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
     console.log('✅ WEBHOOK_VERIFIED');
@@ -50,8 +53,8 @@ router.get('/webhook/instagram', (req, res) => {
 
 // POST /api/webhook/instagram
 router.post('/webhook/instagram', (req, res) => {
-  console.log('📬 [Instagram] Evento webhook:', JSON.stringify(req.body, null, 2));
-  // TODO: processar eventos (mensagens, comentários, etc.)
+  console.log('📬 [Instagram] Evento Webhook:', JSON.stringify(req.body, null, 2));
+  // TODO: processar eventos de mensagens/comentários aqui
   return res.sendStatus(200);
 });
 
@@ -67,10 +70,9 @@ router.post('/instagram/connect', (req, res) => {
   const tenantId    = req.body?.tenant_id || process.env.TENANT_ID || 'T1';
 
   if (!clientId || !redirectUri) {
-    return res.status(500).json({ message: 'INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI não definidos.' });
+    return res.status(500).json({ message: 'INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI não configurados.' });
   }
 
-  // Scope mínimo para Direct API + comentários; ajuste conforme necessidade.
   const scope = [
     'instagram_basic',
     'pages_show_list',
@@ -78,12 +80,12 @@ router.post('/instagram/connect', (req, res) => {
     'instagram_manage_messages'
   ].join(',');
 
-  // `state` previne CSRF e carrega o tenant do workspace.
+  // State: tenant + nonce para evitar CSRF
   const state = `${tenantId}:${crypto.randomUUID()}`;
 
   const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
+    client_id:     clientId,
+    redirect_uri:  redirectUri,
     scope,
     response_type: 'code',
     state
@@ -92,7 +94,7 @@ router.post('/instagram/connect', (req, res) => {
   const authUrl = `${FB_DIALOG_OAUTH}?${params.toString()}`;
   console.log('🔗 [Instagram] authUrl gerado:', authUrl);
 
-  return res.status(200).json({ url: authUrl });
+  return res.json({ url: authUrl });
 });
 
 // GET /api/instagram/callback
@@ -103,8 +105,8 @@ router.get('/instagram/callback', async (req, res) => {
 
     const [tenantId] = (state || '').toString().split(':');
 
-    // Troca code ➜ access_token (short-lived)
-    const tokenRes = await axios.get(FB_OAUTH_TOKEN, {
+    // Troca code → access_token (short-lived)
+    const tokenRes = await axios.get(FB_OAUTH_TOKEN_URL, {
       params: {
         client_id:     process.env.INSTAGRAM_CLIENT_ID,
         client_secret: process.env.INSTAGRAM_CLIENT_SECRET,
@@ -114,26 +116,25 @@ router.get('/instagram/callback', async (req, res) => {
     });
 
     const { access_token } = tokenRes.data;
-    console.log('✅ Access Token (short-lived):', access_token);
+    console.log('✅ Access Token:', access_token);
 
-    // Descobre user_id (e username)
+    // Descobrir user_id + username
     const meRes = await axios.get(`https://graph.facebook.com/${GRAPH_VERSION}/me`, {
       params: { fields: 'id,username', access_token }
     });
     const { id: user_id, username } = meRes.data;
     console.log('✅ IG User ID:', user_id, '| Username:', username);
 
-    // TODO: salvar em instagram_integrations (tenantId, access_token, user_id, username)
+    // TODO: persistir em "instagram_integrations" (tenant_id, access_token, user_id, username)
 
-    // Redireciona para o front
+    // Redirecionar para o front-end
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
     return res.redirect(`${frontend}/integrations/instagram/success`);
 
-  } catch (err) {
-    console.error('❌ Erro no callback Instagram Graph:', err?.response?.data || err.message);
+  } catch (error) {
+    console.error('❌ Erro no callback:', error?.response?.data || error.message);
     return res.status(500).send('Erro ao finalizar autenticação Instagram.');
   }
 });
 
 module.exports = router;
-```}
