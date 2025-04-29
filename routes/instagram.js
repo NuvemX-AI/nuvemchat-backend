@@ -4,7 +4,7 @@
 // ------------------------------------------------------------
 // • Webhook de verificação/recebimento de eventos
 // • Geração da URL de OAuth (Facebook Login ⇢ Instagram)
-// • Callback: troca code ➜ access_token, captura user_id
+// • Callback: troca `code` ➜ `access_token`, captura `user_id`
 // ------------------------------------------------------------
 // OBS:
 // 1) Requer as variáveis no .env:
@@ -13,7 +13,7 @@
 //    INSTAGRAM_REDIRECT_URI=https://nuvemchat-backend-production.up.railway.app/api/instagram/callback
 //    FRONTEND_URL=http://localhost:8080
 //    FACEBOOK_GRAPH_VERSION=v19.0          # opcional (default)
-// 2) Endpoint antigo api.instagram.com/oauth/authorize (Basic Display)
+// 2) Endpoint antigo `api.instagram.com/oauth/authorize` (Basic Display)
 //    foi descontinuado em 2024-12. Este arquivo já usa o fluxo oficial
 //    Facebook Login / Business Login.
 
@@ -28,8 +28,8 @@ const router  = express.Router();
 // Helpers
 //--------------------------------------------------------------------
 const GRAPH_VERSION      = process.env.FACEBOOK_GRAPH_VERSION || 'v19.0';
-const FB_DIALOG_OAUTH    = https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth;
-const FB_OAUTH_TOKEN_URL = https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token;
+const FB_DIALOG_OAUTH    = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
+const FB_OAUTH_TOKEN_URL = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
 
 //--------------------------------------------------------------------
 // 1) Webhook do Instagram: verificação e recebimento de eventos
@@ -81,7 +81,7 @@ router.post('/instagram/connect', (req, res) => {
   ].join(',');
 
   // State: tenant + nonce para evitar CSRF
-  const state = ${tenantId}:${crypto.randomUUID()};
+  const state = `${tenantId}:${crypto.randomUUID()}`;
 
   const params = new URLSearchParams({
     client_id:     clientId,
@@ -91,7 +91,7 @@ router.post('/instagram/connect', (req, res) => {
     state
   });
 
-  const authUrl = ${FB_DIALOG_OAUTH}?${params.toString()};
+  const authUrl = `${FB_DIALOG_OAUTH}?${params.toString()}`;
   console.log('🔗 [Instagram] authUrl gerado:', authUrl);
 
   return res.json({ url: authUrl });
@@ -118,31 +118,60 @@ router.get('/instagram/callback', async (req, res) => {
     const { access_token } = tokenRes.data;
     console.log('✅ Access Token:', access_token);
 
-    // Descobrir user_id (passo mínimo)
-    const meRes = await axios.get(https://graph.facebook.com/${GRAPH_VERSION}/me, {
-      params: { fields: 'id', access_token }
-    });
-    const { id: fb_user_id } = meRes.data;
-    console.log('✅ Facebook User ID:', fb_user_id);
+    // 1) Listar páginas administradas que tenham conta IG
+    const pagesRes = await axios.get(
+      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts`,
+      {
+        params: {
+          fields: 'name,instagram_business_account',
+          access_token
+        }
+      }
+    );
 
-    // ------------------------------------------------------------
-    // Opcional: descobrir a conta Instagram Business vinculada
-    // ------------------------------------------------------------
-    // const pages = await axios.get(https://graph.facebook.com/${GRAPH_VERSION}/me/accounts, {
-    //   params: { fields: 'instagram_business_account', access_token }
-    // });
-    // const igAccount = pages.data.data.find(p => p.instagram_business_account);
-    // const user_id  = igAccount?.instagram_business_account?.id;
-    // console.log('✅ IG Business ID:', user_id);
-    // ------------------------------------------------------------
+    const page = pagesRes.data.data.find(p => p.instagram_business_account);
 
-    const user_id = fb_user_id; // temporário: use FB user id se não precisar de IG ID
+    if (!page) {
+      return res.status(400).json({
+        error: 'Nenhuma Página com conta Instagram profissional vinculada.',
+        hint:  'No app do Instagram: Configurações → Conta profissional → Centro de Contas e vincule a Página.'
+      });
+    }
 
-    // TODO: persistir em "instagram_integrations" (tenant_id, access_token, user_id) em "instagram_integrations" (tenant_id, access_token, user_id, username)
+    const igId = page.instagram_business_account.id;
 
-    // Redirecionar para o front-end
+    // 2) Buscar username + foto da conta IG
+    const igRes = await axios.get(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`,
+      {
+        params: {
+          fields: 'id,username,profile_picture_url',
+          access_token
+        }
+      }
+    );
+
+    const { id, username, profile_picture_url } = igRes.data;
+    console.log('✅ IG Business ID:', id, '(@', username, ')');
+
+    // 3) Persistir
+    await req.db('instagram_integrations')
+      .insert({
+        tenant_id: tenantId,
+        user_id:   id,
+        username,
+        profile_pic: profile_picture_url,
+        access_token,
+        connected_at: new Date()
+      })
+      .onConflict('tenant_id')
+      .merge();
+
+    // 4) Redirecionar para o front-end
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
-    return res.redirect(${frontend}/integrations/instagram/success);
+    return res.redirect(`${frontend}/integrations/instagram/success`);
+    const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
+    return res.redirect(`${frontend}/integrations/instagram/success`);
 
   } catch (error) {
     console.error('❌ Erro no callback:', error?.response?.data || error.message);
