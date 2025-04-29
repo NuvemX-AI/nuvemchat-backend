@@ -17,38 +17,29 @@ router.get('/webhook/instagram', (req, res) => {
   const token     = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  console.log('🔔 [Instagram] Verificação de Webhook', req.query);
-
   if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
-    console.log('✅ WEBHOOK_VERIFIED');
     return res.status(200).send(challenge);
   }
-
-  console.warn('❌ WEBHOOK_VERIFICATION_FAILED');
   return res.sendStatus(403);
 });
 
 // 2) Webhook POST: recebimento de eventos
-router.post('/webhook/instagram', (req, res) => {
-  console.log('📬 [Instagram] Evento Webhook:', JSON.stringify(req.body, null, 2));
-  // TODO: aqui você pode processar comentários, mensagens, etc.
+router.post('/webhook/instagram', (_req, res) => {
+  // console.log('📬 Evento Webhook:', JSON.stringify(req.body, null, 2));
   return res.sendStatus(200);
 });
 
-// 3) Rota para iniciar o fluxo OAuth
-//    POST /api/instagram/connect
+// 3) Rota para iniciar OAuth
 router.post('/instagram/connect', (req, res) => {
   const clientId    = process.env.INSTAGRAM_CLIENT_ID;
   const redirectUri = process.env.INSTAGRAM_REDIRECT_URI;
   const tenantId    = req.body?.tenant_id || process.env.TENANT_ID || 'T1';
 
   if (!clientId || !redirectUri) {
-    return res.status(500).json({
-      message: 'INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI não configurados.'
-    });
+    return res.status(500).json({ message: 'Faltando INSTAGRAM_CLIENT_ID ou INSTAGRAM_REDIRECT_URI' });
   }
 
-  // adicione pages_messaging aqui:
+  // incluímos pages_messaging aqui!
   const scope = [
     'instagram_basic',
     'pages_show_list',
@@ -57,8 +48,7 @@ router.post('/instagram/connect', (req, res) => {
     'pages_messaging'
   ].join(',');
 
-  // state = tenant + nonce para evitar CSRF
-  const state = `${tenantId}:${crypto.randomUUID()}`;
+  const state  = `${tenantId}:${crypto.randomUUID()}`;
   const params = new URLSearchParams({
     client_id:     clientId,
     redirect_uri:  redirectUri,
@@ -68,24 +58,18 @@ router.post('/instagram/connect', (req, res) => {
   });
 
   const authUrl = `${FB_DIALOG_OAUTH}?${params.toString()}`;
-  console.log('🔗 [Instagram] authUrl gerado:', authUrl);
-
   return res.json({ url: authUrl });
 });
 
-// 4) Callback do OAuth: troca code por token, busca contas e persiste
-//    GET /api/instagram/callback
+// 4) Callback OAuth
 router.get('/instagram/callback', async (req, res) => {
   try {
     const { code, state } = req.query;
-    if (!code) {
-      return res.status(400).send('Código de autorização ausente.');
-    }
+    if (!code) return res.status(400).send('Código de autorização ausente.');
 
-    // extrai tenant do state
     const [tenantId] = (state || '').toString().split(':');
 
-    // troca code ➔ access_token
+    // troca code ➔ token
     const tokenRes = await axios.get(FB_OAUTH_TOKEN_URL, {
       params: {
         client_id:     process.env.INSTAGRAM_CLIENT_ID,
@@ -94,73 +78,83 @@ router.get('/instagram/callback', async (req, res) => {
         code
       }
     });
-    const { access_token } = tokenRes.data;
-    console.log('✅ Access Token:', access_token);
+    const userAccessToken = tokenRes.data.access_token;
 
-    // busca as páginas do FB que tenham conta IG Business
+    // pega lista de Páginas com IG Business
     const pagesRes = await axios.get(
       `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts`,
-      {
-        params: {
-          fields:       'name,instagram_business_account',
-          access_token
-        }
-      }
+      { params: { fields: 'name,instagram_business_account', access_token: userAccessToken } }
     );
-    console.log('🔍 [Instagram] resposta de /me/accounts:', JSON.stringify(pagesRes.data, null, 2));
-
     const page = pagesRes.data.data.find(p => p.instagram_business_account);
     if (!page) {
       return res.status(400).json({
-        error: 'Nenhuma Página com conta Instagram profissional vinculada.',
-        hint:  'Vincule uma Conta Profissional no Instagram ➔ Configurações → Conta profissional → Centro de Contas.'
+        error: 'Nenhuma Página com Conta Profissional vinculada.',
+        hint:  'Vincule sua Conta Profissional no Instagram → Configurações → Conta profissional → Centro de Contas.'
       });
     }
 
-    // pega o ID do IG Business
+    // pega o Page Access Token
+    const pageTokenRes = await axios.get(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${page.id}`,
+      { params: { fields: 'access_token', access_token: userAccessToken } }
+    );
+    const pageAccessToken = pageTokenRes.data.access_token;
+
+    // ID do IG Business
     const igId = page.instagram_business_account.id;
 
-    // busca username e foto do IG
+    // subscribe ao webhook de mensagens no IG Business
+    await axios.post(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${igId}/subscribed_apps`,
+      null,
+      {
+        params: {
+          subscribed_fields: 'messages,messaging_postbacks,messaging_optins',
+          access_token: pageAccessToken
+        }
+      }
+    );
+
+    // opcional: buscar info do IG (username, foto)
     const igRes = await axios.get(
       `https://graph.facebook.com/${GRAPH_VERSION}/${igId}`,
       {
         params: {
           fields:       'id,username,profile_picture_url',
-          access_token
+          access_token: userAccessToken
         }
       }
     );
     const { id, username, profile_picture_url } = igRes.data;
-    console.log('✅ IG Business ID:', id, '(@', username, ')');
 
-    // persiste no banco (tabela instagram_integrations)
+    // persiste em instagram_integrations
     await pool.query(
       `INSERT INTO instagram_integrations
          (tenant_id, user_id, username, profile_pic, access_token, connected_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (tenant_id) DO UPDATE SET
-         user_id       = EXCLUDED.user_id,
-         username      = EXCLUDED.username,
-         profile_pic   = EXCLUDED.profile_pic,
-         access_token  = EXCLUDED.access_token,
-         connected_at  = EXCLUDED.connected_at
+         user_id      = EXCLUDED.user_id,
+         username     = EXCLUDED.username,
+         profile_pic  = EXCLUDED.profile_pic,
+         access_token = EXCLUDED.access_token,
+         connected_at = EXCLUDED.connected_at
       `,
       [
         tenantId,
         id,
         username,
         profile_picture_url,
-        access_token,
+        userAccessToken,
         new Date()
       ]
     );
 
-    // redireciona pro front-end
+    // redireciona pro front
     const frontend = process.env.FRONTEND_URL || 'http://localhost:8080';
     return res.redirect(`${frontend}/integrations/instagram/success`);
 
-  } catch (error) {
-    console.error('❌ Erro no callback:', error?.response?.data || error.message);
+  } catch (err) {
+    console.error('❌ Erro no callback:', err.response?.data || err.message);
     return res.status(500).send('Erro ao finalizar autenticação Instagram.');
   }
 });
