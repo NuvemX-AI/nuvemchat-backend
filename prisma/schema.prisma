@@ -14,9 +14,6 @@ datasource db {
 }
 
 // ─────────── Seus modelos existentes ───────────
-// Se você já tem modelos User e Message, mantenha-os aqui.
-// Exemplo:
-/*
 model User {
   id           Int       @id @default(autoincrement())
   name         String?
@@ -24,9 +21,10 @@ model User {
   passwordHash String
   createdAt    DateTime  @default(now())
   lastLogin    DateTime  @default(now())
-  // ... outras relações
+  messages     Message[]
 }
 
+// Mensagens genéricas (exemplo antigo)
 model Message {
   id                   Int       @id @default(autoincrement())
   tenantId             String
@@ -36,9 +34,8 @@ model Message {
   sender               String
   senderUsername       String?
   senderProfilePicture String?
-  // ... outras relações
+  // Relação com WhatsappConversation se desejar
 }
-*/
 
 // ─────────── Modelo para integrações WhatsApp ───────────
 model WhatsappIntegration {
@@ -49,8 +46,30 @@ model WhatsappIntegration {
   status      String    @default("pending")  // pending, connected, error
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-
-  // Se quiser relacionar com User, descomente e ajuste:
-  // user User @relation(fields: [userId], references: [id])
 }
 
+// ─────────── Modelos para Chat ― Contact, Message, MessageUpdate ───────────
+model Contact {
+  id          Int       @id @default(autoincrement())
+  name        String
+  phoneNumber String?   // telefone, se aplicável
+  // Relação com mensagens
+  messages    ChatMessage[]
+}
+
+model ChatMessage {
+  id          Int       @id @default(autoincrement())
+  contactId   Int
+  content     String
+  sentAt      DateTime  @default(now())
+  // Relação inversa
+  contact     Contact   @relation(fields: [contactId], references: [id])
+}
+
+model MessageUpdate {
+  id          Int       @id @default(autoincrement())
+  messageId   Int
+  updatedAt   DateTime  @updatedAt
+  newContent  String
+  message     ChatMessage @relation(fields: [messageId], references: [id])
+}
