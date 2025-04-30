@@ -1,0 +1,56 @@
+// prisma/schema.prisma
+//
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────── Seus modelos existentes ───────────
+// Se você já tem modelos User e Message, mantenha-os aqui.
+// Exemplo:
+/*
+model User {
+  id           Int       @id @default(autoincrement())
+  name         String?
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  lastLogin    DateTime  @default(now())
+  // ... outras relações
+}
+
+model Message {
+  id                   Int       @id @default(autoincrement())
+  tenantId             String
+  channel              String
+  message              String
+  timestamp            DateTime  @default(now())
+  sender               String
+  senderUsername       String?
+  senderProfilePicture String?
+  // ... outras relações
+}
+*/
+
+// ─────────── Modelo para integrações WhatsApp ───────────
+model WhatsappIntegration {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  instanceId  String    @unique
+  sessionData Json?
+  status      String    @default("pending")  // pending, connected, error
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Se quiser relacionar com User, descomente e ajuste:
+  // user User @relation(fields: [userId], references: [id])
+}
+
