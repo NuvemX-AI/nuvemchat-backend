@@ -19,7 +19,7 @@ async function apikey(req: Request, _: Response, next: NextFunction) {
     throw new UnauthorizedException();
   }
 
-  // Chave global
+  // Se a chave for a chave global, permite acesso
   if (env.KEY === key) {
     return next();
   }
@@ -27,16 +27,17 @@ async function apikey(req: Request, _: Response, next: NextFunction) {
   const param = req.params as unknown as InstanceDto;
 
   try {
-    // Autenticação por integração específica (instanceName → instanceId)
+    // Autenticação por integração específica
     if (param?.instanceName) {
+      // Busca pelo instanceId na tabela WhatsappIntegration
       const integration = await prismaRepository.whatsappIntegration.findUnique({
         where: { instanceId: param.instanceName },
       });
-      if (integration && integration.sessionData?.token === key) {
+      if (integration && typeof integration.sessionData === 'object' && 'token' in integration.sessionData && (integration.sessionData as any).token === key) {
         return next();
       }
     } else {
-      // Rota fetchInstances quando SAVE_DATA.INSTANCE habilitado
+      // Para rota fetchInstances quando SAVE_DATA.INSTANCE habilitado
       if (req.originalUrl.includes('/instance/fetchInstances') && db.SAVE_DATA.INSTANCE) {
         const integrationByKey = await prismaRepository.whatsappIntegration.findFirst({
           where: { sessionData: { path: ['token'], equals: key } },
