@@ -1,7 +1,4 @@
 // prisma/schema.prisma
-//
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
@@ -21,20 +18,6 @@ model User {
   passwordHash String
   createdAt    DateTime  @default(now())
   lastLogin    DateTime  @default(now())
-  messages     Message[]
-}
-
-// Mensagens genéricas (exemplo antigo)
-model Message {
-  id                   Int       @id @default(autoincrement())
-  tenantId             String
-  channel              String
-  message              String
-  timestamp            DateTime  @default(now())
-  sender               String
-  senderUsername       String?
-  senderProfilePicture String?
-  // Relação com WhatsappConversation se desejar
 }
 
 // ─────────── Modelo para integrações WhatsApp ───────────
@@ -43,27 +26,26 @@ model WhatsappIntegration {
   userId      Int
   instanceId  String    @unique
   sessionData Json?
-  status      String    @default("pending")  // pending, connected, error
+  status      String    @default("pending")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
 
-// ─────────── Modelos para Chat ― Contact, Message, MessageUpdate ───────────
+// ─────────── Modelos para Chat: Contact, Message, MessageUpdate ───────────
 model Contact {
   id          Int       @id @default(autoincrement())
   name        String
-  phoneNumber String?   // telefone, se aplicável
-  // Relação com mensagens
-  messages    ChatMessage[]
+  phoneNumber String?   
+  messages    Message[] // relação inversa com Message
 }
 
-model ChatMessage {
-  id          Int       @id @default(autoincrement())
+model Message {
+  id          Int             @id @default(autoincrement())
   contactId   Int
   content     String
-  sentAt      DateTime  @default(now())
-  // Relação inversa
-  contact     Contact   @relation(fields: [contactId], references: [id])
+  sentAt      DateTime        @default(now())
+  contact     Contact         @relation(fields: [contactId], references: [id])
+  updates     MessageUpdate[] // relação inversa com MessageUpdate
 }
 
 model MessageUpdate {
@@ -71,5 +53,5 @@ model MessageUpdate {
   messageId   Int
   updatedAt   DateTime  @updatedAt
   newContent  String
-  message     ChatMessage @relation(fields: [messageId], references: [id])
+  message     Message   @relation(fields: [messageId], references: [id])
 }
