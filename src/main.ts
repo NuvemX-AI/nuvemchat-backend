@@ -1,3 +1,4 @@
+// src/main.ts
 // Import this first from sentry instrument!
 import '@utils/instrumentSentry';
 
@@ -18,8 +19,8 @@ import cors from 'cors';
 import express, { json, NextFunction, Request, Response, urlencoded } from 'express';
 import { join } from 'path';
 
-// Import the unified Evolution API bootstrap function
-import { bootstrapEvolution } from './evolution/main';
+// Import the Evolution API app
+import { createEvolutionApp } from '../evolution-api/src/main';
 
 function initWA() {
   waMonitor.loadInstance();
@@ -64,8 +65,9 @@ async function bootstrap() {
   app.use(express.static(join(ROOT_DIR, 'public')));
   app.use('/store', express.static(join(ROOT_DIR, 'store')));
 
-  // Mount unified Evolution API under /evolution
-  await bootstrapEvolution(app);
+  // Mount Evolution API as sub-app under /evolution
+  const evoApp = createEvolutionApp();
+  app.use('/evolution', evoApp);
   logger.info('Evolution API - Mounted at /evolution');
 
   // Mount existing routes
