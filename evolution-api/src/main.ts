@@ -1,26 +1,30 @@
-// src/evolution/main.ts
-// Entrypoint for mounting the Evolution API into the main Express app
+// evolution-api/src/main.ts
 import express, { Application, Router } from 'express';
-import { createEvolutionRouter } from './evolution.router'; // ajuste este import conforme sua estrutura
+import { createEvolutionRouter } from './evolution.router'; 
+// ⚠️ Verifique este caminho: deve apontar para onde você registra suas rotas (controllers, services, etc.)
 
 /**
- * Mounts all Evolution API routes under /evolution
+ * Monta todas as rotas da Evolution API sob /evolution
  */
 export function bootstrapEvolution(app: Application) {
   const evoRouter = Router();
-  // Registre aqui todas as rotas da Evolution API
+
+  // Aqui você registra suas rotas antigas:
+  // ex.: evoRouter.post('/instance', instanceController.create);
   createEvolutionRouter(evoRouter);
 
-  // Monta o router no endpoint /evolution
+  // Monta em /evolution
   app.use('/evolution', evoRouter);
 }
 
-// Se desejar rodar a Evolution API separadamente (opcional)
+// Se for executado diretamente (standalone), mantemos a porta 8081:
 if (require.main === module) {
   (async () => {
-    const app = express();
-    bootstrapEvolution(app);
+    const standalone = express();
+    bootstrapEvolution(standalone);
     const port = process.env.PORT_EV || 8081;
-    app.listen(port, () => console.log(`Evolution API standalone - ON: ${port}`));
+    standalone.listen(port, () => 
+      console.log(`Evolution API standalone - ON: ${port}`)
+    );
   })();
 }
