@@ -1,3 +1,5 @@
+// src/api/controllers/instance.controller.ts
+
 import { InstanceDto, SetPresenceDto } from '@api/dto/instance.dto';
 import { ChatwootService } from '@api/integrations/chatbot/chatwoot/services/chatwoot.service';
 import { ProviderFiles } from '@api/provider/sessions';
@@ -45,7 +47,6 @@ export class InstanceController {
         baileysCache: this.baileysCache,
         providerFiles: this.providerFiles,
       });
-
       if (!instance) throw new BadRequestException('Invalid integration');
 
       const instanceId = v4();
@@ -73,14 +74,13 @@ export class InstanceController {
         number: instanceData.number,
         businessId: instanceData.businessId,
       });
-
       this.waMonitor.waInstances[instance.instanceName] = instance;
       this.waMonitor.delInstanceTime(instance.instanceName);
 
       await eventManager.setInstance(instance.instanceName, instanceData);
       instance.sendDataWebhook(Events.INSTANCE_CREATE, { instanceName: instanceData.instanceName, instanceId });
 
-      // Proxy
+      // Proxy config
       if (instanceData.proxyHost && instanceData.proxyPort && instanceData.proxyProtocol) {
         const testProxy = await this.proxyService.testProxy({
           host: instanceData.proxyHost,
@@ -114,7 +114,7 @@ export class InstanceController {
       };
       await this.settingsService.create(instance, settings);
 
-      // WhatsApp Business
+      // WhatsApp Business webhook
       let webhookWaBusiness: string | null = null;
       let accessTokenWaBusiness = '';
       if (instanceData.integration === Integration.WHATSAPP_BUSINESS) {
@@ -124,7 +124,7 @@ export class InstanceController {
         accessTokenWaBusiness = this.configService.get<WaBusiness>('WA_BUSINESS').TOKEN_WEBHOOK;
       }
 
-      // QR Code flow (Baileys)
+      // QR code flow (Baileys)
       if (!instanceData.chatwootAccountId || !instanceData.chatwootToken || !instanceData.chatwootUrl) {
         let getQrcode: wa.QrCode;
         if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
@@ -190,7 +190,7 @@ export class InstanceController {
         this.logger.log(error);
       }
 
-      // Retorno final após integração Chatwoot
+      // Final return
       return {
         instance: {
           instanceName: instance.instanceName,
@@ -286,15 +286,13 @@ export class InstanceController {
           id: instanceId || undefined,
         },
       });
-      if (instancesByKey.length > 0) {
+      if (instancesByKey.length) {
         const names = instancesByKey.map((i) => i.instanceName);
         return this.waMonitor.instanceInfo(names);
       }
       throw new UnauthorizedException();
     }
-    if (instanceId || number) {
-      return this.waMonitor.instanceInfoById(instanceId, number);
-    }
+    if (instanceId || number) return this.waMonitor.instanceInfoById(instanceId, number);
     const instanceNames = instanceName ? [instanceName] : null;
     return this.waMonitor.instanceInfo(instanceNames);
   }
@@ -305,9 +303,7 @@ export class InstanceController {
 
   public async logout({ instanceName }: InstanceDto) {
     const { instance } = await this.connectionState({ instanceName });
-    if (instance.state === 'close') {
-      throw new BadRequestException(`The "${instanceName}" instance is not connected`);
-    }
+    if (instance.state === 'close') throw new BadRequestException(`The "${instanceName}" instance is not connected`);
     try {
       this.waMonitor.waInstances[instanceName]?.logoutInstance();
       return { status: 'SUCCESS', error: false, response: { message: 'Instance logged out' } };
@@ -321,9 +317,7 @@ export class InstanceController {
     try {
       const inst = this.waMonitor.waInstances[instanceName];
       if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) inst.clearCacheChatwoot();
-      if (instance.state === 'connecting' || instance.state === 'open') {
-        await this.logout({ instanceName });
-      }
+      if (instance.state === 'connecting' || instance.state === 'open') await this.logout({ instanceName });
       try {
         inst.sendDataWebhook(Events.INSTANCE_DELETE, { instanceName, instanceId: inst.instanceId });
       } catch (err) {
