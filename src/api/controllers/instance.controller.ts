@@ -46,18 +46,11 @@ export class InstanceController {
         providerFiles: this.providerFiles,
       });
 
-      if (!instance) {
-        throw new BadRequestException('Invalid integration');
-      }
+      if (!instance) throw new BadRequestException('Invalid integration');
 
       const instanceId = v4();
-
       instanceData.instanceId = instanceId;
-
-      let hash: string;
-
-      if (!instanceData.token) hash = v4().toUpperCase();
-      else hash = instanceData.token;
+      const hash = instanceData.token ?? v4().toUpperCase();
 
       await this.waMonitor.saveInstance({
         instanceId,
@@ -84,14 +77,10 @@ export class InstanceController {
       this.waMonitor.waInstances[instance.instanceName] = instance;
       this.waMonitor.delInstanceTime(instance.instanceName);
 
-      // set events
       await eventManager.setInstance(instance.instanceName, instanceData);
+      instance.sendDataWebhook(Events.INSTANCE_CREATE, { instanceName: instanceData.instanceName, instanceId });
 
-      instance.sendDataWebhook(Events.INSTANCE_CREATE, {
-        instanceName: instanceData.instanceName,
-        instanceId: instanceId,
-      });
-
+      // Proxy
       if (instanceData.proxyHost && instanceData.proxyPort && instanceData.proxyProtocol) {
         const testProxy = await this.proxyService.testProxy({
           host: instanceData.proxyHost,
@@ -100,9 +89,7 @@ export class InstanceController {
           username: instanceData.proxyUsername,
           password: instanceData.proxyPassword,
         });
-        if (!testProxy) {
-          throw new BadRequestException('Invalid proxy');
-        }
+        if (!testProxy) throw new BadRequestException('Invalid proxy');
 
         await this.proxyService.createProxy(instance, {
           enabled: true,
@@ -114,44 +101,41 @@ export class InstanceController {
         });
       }
 
+      // Settings
       const settings: wa.LocalSettings = {
-        rejectCall: instanceData.rejectCall === true,
+        rejectCall: Boolean(instanceData.rejectCall),
         msgCall: instanceData.msgCall || '',
-        groupsIgnore: instanceData.groupsIgnore === true,
-        alwaysOnline: instanceData.alwaysOnline === true,
-        readMessages: instanceData.readMessages === true,
-        readStatus: instanceData.readStatus === true,
-        syncFullHistory: instanceData.syncFullHistory === true,
+        groupsIgnore: Boolean(instanceData.groupsIgnore),
+        alwaysOnline: Boolean(instanceData.alwaysOnline),
+        readMessages: Boolean(instanceData.readMessages),
+        readStatus: Boolean(instanceData.readStatus),
+        syncFullHistory: Boolean(instanceData.syncFullHistory),
         wavoipToken: instanceData.wavoipToken || '',
       };
-
       await this.settingsService.create(instance, settings);
 
-      let webhookWaBusiness = null,
-        accessTokenWaBusiness = '';
-
+      // WhatsApp Business
+      let webhookWaBusiness: string | null = null;
+      let accessTokenWaBusiness = '';
       if (instanceData.integration === Integration.WHATSAPP_BUSINESS) {
-        if (!instanceData.number) {
-          throw new BadRequestException('number is required');
-        }
+        if (!instanceData.number) throw new BadRequestException('number is required');
         const urlServer = this.configService.get<HttpServer>('SERVER').URL;
         webhookWaBusiness = `${urlServer}/webhook/meta`;
         accessTokenWaBusiness = this.configService.get<WaBusiness>('WA_BUSINESS').TOKEN_WEBHOOK;
       }
 
+      // QR Code flow (Baileys)
       if (!instanceData.chatwootAccountId || !instanceData.chatwootToken || !instanceData.chatwootUrl) {
         let getQrcode: wa.QrCode;
-
         if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
           await instance.connectToWhatsapp(instanceData.number);
           await delay(5000);
           getQrcode = instance.qrCode;
         }
-
-        const result = {
+        return {
           instance: {
             instanceName: instance.instanceName,
-            instanceId: instanceId,
+            instanceId,
             integration: instanceData.integration,
             webhookWaBusiness,
             accessTokenWaBusiness,
@@ -159,60 +143,30 @@ export class InstanceController {
           },
           hash,
           webhook: {
-            webhookUrl: instanceData?.webhook?.url,
-            webhookHeaders: instanceData?.webhook?.headers,
-            webhookByEvents: instanceData?.webhook?.byEvents,
-            webhookBase64: instanceData?.webhook?.base64,
+            webhookUrl: instanceData.webhook?.url,
+            webhookHeaders: instanceData.webhook?.headers,
+            webhookByEvents: instanceData.webhook?.byEvents,
+            webhookBase64: instanceData.webhook?.base64,
           },
-          websocket: {
-            enabled: instanceData?.websocket?.enabled,
-          },
-          rabbitmq: {
-            enabled: instanceData?.rabbitmq?.enabled,
-          },
-          sqs: {
-            enabled: instanceData?.sqs?.enabled,
-          },
+          websocket: { enabled: instanceData.websocket?.enabled },
+          rabbitmq: { enabled: instanceData.rabbitmq?.enabled },
+          sqs: { enabled: instanceData.sqs?.enabled },
           settings,
           qrcode: getQrcode,
         };
-
-        return result;
       }
 
-      if (!this.configService.get<Chatwoot>('CHATWOOT').ENABLED)
-        throw new BadRequestException('Chatwoot is not enabled');
-
-      if (!instanceData.chatwootAccountId) {
-        throw new BadRequestException('accountId is required');
-      }
-
-      if (!instanceData.chatwootToken) {
-        throw new BadRequestException('token is required');
-      }
-
-      if (!instanceData.chatwootUrl) {
-        throw new BadRequestException('url is required');
-      }
-
-      if (!isURL(instanceData.chatwootUrl, { require_tld: false })) {
-        throw new BadRequestException('Invalid "url" property in chatwoot');
-      }
-
-      if (instanceData.chatwootSignMsg !== true && instanceData.chatwootSignMsg !== false) {
-        throw new BadRequestException('signMsg is required');
-      }
-
-      if (instanceData.chatwootReopenConversation !== true && instanceData.chatwootReopenConversation !== false) {
-        throw new BadRequestException('reopenConversation is required');
-      }
-
-      if (instanceData.chatwootConversationPending !== true && instanceData.chatwootConversationPending !== false) {
-        throw new BadRequestException('conversationPending is required');
-      }
+      // Chatwoot integration
+      if (!this.configService.get<Chatwoot>('CHATWOOT').ENABLED) throw new BadRequestException('Chatwoot is not enabled');
+      if (!instanceData.chatwootAccountId) throw new BadRequestException('accountId is required');
+      if (!instanceData.chatwootToken) throw new BadRequestException('token is required');
+      if (!instanceData.chatwootUrl) throw new BadRequestException('url is required');
+      if (!isURL(instanceData.chatwootUrl, { require_tld: false })) throw new BadRequestException('Invalid "url" property in chatwoot');
+      if (![true, false].includes(instanceData.chatwootSignMsg as boolean)) throw new BadRequestException('signMsg is required');
+      if (![true, false].includes(instanceData.chatwootReopenConversation as boolean)) throw new BadRequestException('reopenConversation is required');
+      if (![true, false].includes(instanceData.chatwootConversationPending as boolean)) throw new BadRequestException('conversationPending is required');
 
       const urlServer = this.configService.get<HttpServer>('SERVER').URL;
-
       try {
         this.chatwootService.create(instance, {
           enabled: true,
@@ -236,10 +190,11 @@ export class InstanceController {
         this.logger.log(error);
       }
 
+      // Retorno final após integração Chatwoot
       return {
         instance: {
           instanceName: instance.instanceName,
-          instanceId: instanceId,
+          instanceId,
           integration: instanceData.integration,
           webhookWaBusiness,
           accessTokenWaBusiness,
@@ -247,20 +202,14 @@ export class InstanceController {
         },
         hash,
         webhook: {
-          webhookUrl: instanceData?.webhook?.url,
-          webhookHeaders: instanceData?.webhook?.headers,
-          webhookByEvents: instanceData?.webhook?.byEvents,
-          webhookBase64: instanceData?.webhook?.base64,
+          webhookUrl: instanceData.webhook?.url,
+          webhookHeaders: instanceData.webhook?.headers,
+          webhookByEvents: instanceData.webhook?.byEvents,
+          webhookBase64: instanceData.webhook?.base64,
         },
-        websocket: {
-          enabled: instanceData?.websocket?.enabled,
-        },
-        rabbitmq: {
-          enabled: instanceData?.rabbitmq?.enabled,
-        },
-        sqs: {
-          enabled: instanceData?.sqs?.enabled,
-        },
+        websocket: { enabled: instanceData.websocket?.enabled },
+        rabbitmq: { enabled: instanceData.rabbitmq?.enabled },
+        sqs: { enabled: instanceData.sqs?.enabled },
         settings,
         chatwoot: {
           enabled: true,
@@ -290,33 +239,15 @@ export class InstanceController {
     try {
       const instance = this.waMonitor.waInstances[instanceName];
       const state = instance?.connectionStatus?.state;
-
-      if (!state) {
-        throw new BadRequestException('The "' + instanceName + '" instance does not exist');
-      }
-
-      if (state == 'open') {
-        return await this.connectionState({ instanceName });
-      }
-
-      if (state == 'connecting') {
-        return instance.qrCode;
-      }
-
-      if (state == 'close') {
+      if (!state) throw new BadRequestException(`The "${instanceName}" instance does not exist`);
+      if (state === 'open') return await this.connectionState({ instanceName });
+      if (state === 'connecting') return instance.qrCode;
+      if (state === 'close') {
         await instance.connectToWhatsapp(number);
-
         await delay(2000);
         return instance.qrCode;
       }
-
-      return {
-        instance: {
-          instanceName: instanceName,
-          status: state,
-        },
-        qrcode: instance?.qrCode,
-      };
+      return { instance: { instanceName, status: state }, qrcode: instance?.qrCode };
     } catch (error) {
       this.logger.error(error);
       return { error: true, message: error.toString() };
@@ -325,25 +256,14 @@ export class InstanceController {
 
   public async restartInstance({ instanceName }: InstanceDto) {
     try {
-      const instance = this.waMonitor.waInstances[instanceName];
-      const state = instance?.connectionStatus?.state;
-
-      if (!state) {
-        throw new BadRequestException('The "' + instanceName + '" instance does not exist');
-      }
-
-      if (state == 'close') {
-        throw new BadRequestException('The "' + instanceName + '" instance is not connected');
-      } else if (state == 'open') {
-        if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) instance.clearCacheChatwoot();
-        this.logger.info('restarting instance' + instanceName);
-
-        instance.client?.ws?.close();
-        instance.client?.end(new Error('restart'));
-        return await this.connectToWhatsapp({ instanceName });
-      } else if (state == 'connecting') {
-        instance.client?.ws?.close();
-        instance.client?.end(new Error('restart'));
+      const inst = this.waMonitor.waInstances[instanceName];
+      const state = inst?.connectionStatus?.state;
+      if (!state) throw new BadRequestException(`The "${instanceName}" instance does not exist`);
+      if (state === 'close') throw new BadRequestException(`The "${instanceName}" instance is not connected`);
+      if (state === 'open' || state === 'connecting') {
+        if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) inst.clearCacheChatwoot();
+        inst.client?.ws?.close();
+        inst.client?.end(new Error('restart'));
         return await this.connectToWhatsapp({ instanceName });
       }
     } catch (error) {
@@ -353,41 +273,29 @@ export class InstanceController {
   }
 
   public async connectionState({ instanceName }: InstanceDto) {
-    return {
-      instance: {
-        instanceName: instanceName,
-        state: this.waMonitor.waInstances[instanceName]?.connectionStatus?.state,
-      },
-    };
+    return { instance: { instanceName, state: this.waMonitor.waInstances[instanceName]?.connectionStatus?.state } };
   }
 
   public async fetchInstances({ instanceName, instanceId, number }: InstanceDto, key: string) {
     const env = this.configService.get<Auth>('AUTHENTICATION').API_KEY;
-
     if (env.KEY !== key) {
-      const instancesByKey = await this.prismaRepository.instance.findMany({
+      const instancesByKey = await this.prismaRepository.whatsappIntegration.findMany({
         where: {
-          token: key,
-          name: instanceName || undefined,
+          sessionData: { path: ['token'], equals: key },
+          instanceName: instanceName || undefined,
           id: instanceId || undefined,
         },
       });
-
       if (instancesByKey.length > 0) {
-        const names = instancesByKey.map((instance) => instance.name);
-
+        const names = instancesByKey.map((i) => i.instanceName);
         return this.waMonitor.instanceInfo(names);
-      } else {
-        throw new UnauthorizedException();
       }
+      throw new UnauthorizedException();
     }
-
     if (instanceId || number) {
       return this.waMonitor.instanceInfoById(instanceId, number);
     }
-
     const instanceNames = instanceName ? [instanceName] : null;
-
     return this.waMonitor.instanceInfo(instanceNames);
   }
 
@@ -397,14 +305,11 @@ export class InstanceController {
 
   public async logout({ instanceName }: InstanceDto) {
     const { instance } = await this.connectionState({ instanceName });
-
     if (instance.state === 'close') {
-      throw new BadRequestException('The "' + instanceName + '" instance is not connected');
+      throw new BadRequestException(`The "${instanceName}" instance is not connected`);
     }
-
     try {
       this.waMonitor.waInstances[instanceName]?.logoutInstance();
-
       return { status: 'SUCCESS', error: false, response: { message: 'Instance logged out' } };
     } catch (error) {
       throw new InternalServerErrorException(error.toString());
@@ -414,22 +319,16 @@ export class InstanceController {
   public async deleteInstance({ instanceName }: InstanceDto) {
     const { instance } = await this.connectionState({ instanceName });
     try {
-      const waInstances = this.waMonitor.waInstances[instanceName];
-      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) waInstances?.clearCacheChatwoot();
-
+      const inst = this.waMonitor.waInstances[instanceName];
+      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) inst.clearCacheChatwoot();
       if (instance.state === 'connecting' || instance.state === 'open') {
         await this.logout({ instanceName });
       }
-
       try {
-        waInstances?.sendDataWebhook(Events.INSTANCE_DELETE, {
-          instanceName,
-          instanceId: waInstances.instanceId,
-        });
-      } catch (error) {
-        this.logger.error(error);
+        inst.sendDataWebhook(Events.INSTANCE_DELETE, { instanceName, instanceId: inst.instanceId });
+      } catch (err) {
+        this.logger.error(err);
       }
-
       this.eventEmitter.emit('remove.instance', instanceName, 'inner');
       return { status: 'SUCCESS', error: false, response: { message: 'Instance deleted' } };
     } catch (error) {
